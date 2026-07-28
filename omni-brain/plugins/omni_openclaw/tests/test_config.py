@@ -23,14 +23,14 @@ class TestOpenClawConfig:
         assert cfg.llm_l2_l3_endpoint == "http://192.168.71.109:52415/v1"
         assert cfg.comfyui_endpoint == "http://192.168.71.127:8188"
         assert cfg.tts_endpoint == "http://192.168.71.127:9200"
-        assert cfg.embedding_endpoint == "http://192.168.71.127:9301/v1"
+        assert cfg.embedding_endpoint == "http://192.168.71.127:9302/v1"
 
     def test_default_models(self) -> None:
         """默认模型 ID 应符合 openclaw01 规格。"""
         cfg = OpenClawConfig()
         assert cfg.llm_l1_model == "qwen3.6-uncensored"
         assert cfg.llm_l4_model == "euryale-70b"
-        assert cfg.embedding_model == "bge-small-zh-v1.5"
+        assert cfg.embedding_model == "Qwen3-Embedding-4B"
 
     def test_wechat_defaults(self) -> None:
         """微信默认账号与目标用户应符合规格。"""

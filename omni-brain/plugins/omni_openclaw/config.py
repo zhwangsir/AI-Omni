@@ -39,8 +39,9 @@ class OpenClawConfig:
     # 多模态/图像/TTS/Embedding
     comfyui_endpoint: str = "http://192.168.71.127:8188"
     tts_endpoint: str = "http://192.168.71.127:9200"
-    embedding_endpoint: str = "http://192.168.71.127:9301/v1"
-    embedding_model: str = "bge-small-zh-v1.5"
+    # 2026-07-28 设备文档: Infinity Embedding :9301 已停，替换为真机 Qwen3-Embedding-4B :9302
+    embedding_endpoint: str = "http://192.168.71.127:9302/v1"
+    embedding_model: str = "Qwen3-Embedding-4B"
 
     # 微信通道
     wechat_bridge_endpoint: str = "http://192.168.71.86:9095"

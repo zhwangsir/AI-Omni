@@ -55,7 +55,7 @@ _ENDPOINTS = {
     "llm_l4": "http://192.168.71.82:8000/v1/models",
     "comfyui": "http://192.168.71.127:8188/system_stats",
     "tts": "http://192.168.71.127:9200/health",
-    "embedding": "http://192.168.71.127:9301/v1/models",
+    "embedding": "http://192.168.71.127:9302/health",
 }
 
 

@@ -162,7 +162,8 @@ class ClusterChecker:
                 f"{cfg.comfyui_endpoint.rstrip('/')}/system_stats",
             ),
             ("tts", "p1", f"{cfg.tts_endpoint.rstrip('/')}/health"),
-            ("embedding", "p1", self._health_url(cfg.embedding_endpoint)),
+            # Qwen3-Embedding-4B :9302 只实现了 /health 与 /v1/embeddings，没有 /v1/models
+            ("embedding", "p1", f"{cfg.embedding_endpoint.rstrip('/').removesuffix('/v1')}/health"),
         ]
 
     async def _probe_http(self, name: str, priority: str, url: str) -> dict[str, Any]:

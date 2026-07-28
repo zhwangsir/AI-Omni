@@ -5672,3 +5672,66 @@ $ PYTHONPATH=omni-brain/plugins python3 scripts/verify_openclaw_real.py --send-w
 - 真实微信投递返回 HTTP 500 / `{"status":"failed"}`，根因为 OpenClaw agent 将消息标记为 `NO_REPLY` → `delivery suppressed`，属于 OpenClaw / wechat-bridge 基础设施侧行为，不在 AI-Omni 代码修复范围内（AGENTS.md §4 项目隔离纪律）。
 - 代码层面已达到可提交状态；如需要真实微信到达收件人，需在 OpenClaw / wechat-bridge 侧调整 agent 响应策略或目标账号配置。
 
+----
+
+## 2026-07-29 — 对齐最新设备说明.md，修正 Embedding 端口
+
+### 范围
+
+根据 `/Users/wangzhenyu/Desktop/ALLProject/AI-Omni/设备说明.md`（最后更新 2026-07-28）校正 `omni_openclaw` 默认端点：
+
+- Embedding `:9301` 已停 → 真机 **Qwen3-Embedding-4B `:9302`**
+- 模型名 `bge-small-zh-v1.5` → `Qwen3-Embedding-4B`
+- `:9302` 仅实现 `/health` 与 `/v1/embeddings`，无 `/v1/models`，cluster health 探针改为 `/health`
+- Home Assistant `:8211` 在文档中已标记为已停，代码中保留工具但调用会返回 `E_HA_UNAVAILABLE`
+
+### 代码变更
+
+- `omni-brain/plugins/omni_openclaw/config.py`：更新 embedding 默认端点/模型
+- `omni-brain/plugins/omni_openclaw/cluster.py`：embedding 健康检查使用 `/health`
+- `omni-brain/plugins/omni_openclaw/tests/test_config.py`：更新默认值断言
+- `omni-brain/plugins/omni_openclaw/tests/test_cluster.py`：更新 fake 端点 URL
+
+### 全量回归
+
+```bash
+$ python3 -m pytest
+============================ 2063 passed in 33.41s =============================
+```
+
+### 真实可用性复验
+
+```bash
+$ PYTHONPATH=omni-brain/plugins python3 - <<'PY'
+import asyncio, json
+from omni_openclaw.cluster import ClusterChecker
+c = ClusterChecker()
+print(json.dumps(asyncio.run(c.health_check()), ensure_ascii=False, indent=2))
+asyncio.run(c.close())
+PY
+{
+  "ok": true,
+  "summary": "集群健康",
+  "report": {
+    "p0": [],
+    "p1": [],
+    "p2": [],
+    "details": [
+      {"name": "gateway", "ok": true, "status": 200, "url": "http://192.168.71.86:18789/health"},
+      {"name": "llm_l1", "ok": true, "status": 200, "url": "http://192.168.71.127:8000/v1/models", "body": {"data": [{"id": "qwen3.6-uncensored"}]}},
+      {"name": "llm_l4", "ok": true, "status": 200, "url": "http://192.168.71.82:8000/v1/models", "body": {"data": [{"id": "euryale-70b"}]}},
+      {"name": "comfyui", "ok": true, "status": 200, "url": "http://192.168.71.127:8188/system_stats", "body": {"healthy_count": 5, "total_count": 5}},
+      {"name": "tts", "ok": true, "status": 200, "url": "http://192.168.71.127:9200/health", "body": {"status": "ok", "engine": "indextts2", "model_loaded": true}},
+      {"name": "embedding", "ok": true, "status": 200, "url": "http://192.168.71.127:9302/health", "body": {"status": "ok", "model": "qwen3-embedding-4b"}}
+    ],
+    "ssh": []
+  }
+}
+```
+
+### 结论
+
+- 所有 HTTP 巡检端点（gateway/L1/L4/ComfyUI/TTS/Embedding）当前均正常。
+- Embedding 服务已按设备文档从 `:9301` 迁移到 `:9302`，AI-Omni 默认配置已对齐。
+- Home Assistant `:8211` 仍不可用（基础设施侧已拆除），智能家居类工具会返回 `E_HA_UNAVAILABLE`。
+
