@@ -1,0 +1,39 @@
+{
+  "name": "omni_voice",
+  "version": "0.1.0",
+  "description": "本地语音交互 MVP 插件 - 唤醒/VAD/ASR/LLM Agent/TTS 管道",
+  "author": "AI-Omni",
+  "permissions": [
+    "voice.listen",
+    "network",
+    "fs.read:./state",
+    "fs.write:./state",
+    "tools.register"
+  ],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "voice.state_changed",
+      "voice.wake_detected",
+      "voice.asr_final",
+      "voice.interrupted",
+      "voice.tool_start",
+      "voice.tool_end",
+      "voice.reply"
+    ],
+    "subscribes": ["system.volume_changed"]
+  },
+  "tools": [
+    "voice_status",
+    "voice_speak",
+    "voice_listen_once",
+    "voice_pipeline_start",
+    "voice_pipeline_stop",
+    "voice_config",
+    "voice_interrupt",
+    "voice_identity"
+  ]
+}

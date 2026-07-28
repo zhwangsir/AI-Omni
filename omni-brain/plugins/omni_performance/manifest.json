@@ -1,0 +1,20 @@
+{
+  "name": "omni_performance",
+  "version": "0.1.0",
+  "description": "系统性能监控插件 - CPU/内存/磁盘使用率查询",
+  "author": "AI-Omni",
+  "permissions": ["tools.register"],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [],
+    "subscribes": []
+  },
+  "tools": [
+    "system_get_cpu_usage",
+    "system_get_memory_usage",
+    "system_get_disk_usage"
+  ]
+}

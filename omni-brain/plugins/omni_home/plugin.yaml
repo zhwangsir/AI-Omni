@@ -1,0 +1,11 @@
+name: omni_home
+version: 0.1.0
+description: 智能家居控制插件 - Home Assistant 桥接 + 自然语言设备控制
+kind: standalone
+provides_tools:
+  - home_status
+  - home_refresh
+  - home_control
+  - home_query
+  - home_list
+  - home_config

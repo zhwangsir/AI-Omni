@@ -1,0 +1,51 @@
+{
+  "name": "omni-hud",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "tauri": "tauri",
+    "test:e2e": "playwright test --config=e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config=e2e/playwright.config.ts --ui",
+    "test:e2e:headed": "playwright test --config=e2e/playwright.config.ts --headed",
+    "test:e2e:debug": "playwright test --config=e2e/playwright.config.ts --debug",
+    "test:e2e:codegen": "playwright codegen http://localhost:1420",
+    "test:e2e:chromium": "playwright test --config=e2e/playwright.config.ts --project=chromium",
+    "test:e2e:webkit": "playwright test --config=e2e/playwright.config.ts --project=webkit",
+    "test:e2e:firefox": "playwright test --config=e2e/playwright.config.ts --project=firefox",
+    "test:e2e:visual": "playwright test --config=e2e/playwright.config.ts --project=visual-chromium",
+    "test:e2e:report": "playwright show-report e2e/.report/html",
+    "test:all": "vitest run && playwright test --config=e2e/playwright.config.ts"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "0.178.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0",
+    "@tauri-apps/cli": "^2.1.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "0.178.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.3",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,12 @@
+name: omni_voice
+version: 0.1.0
+description: 本地语音交互 MVP 插件 - 唤醒/VAD/ASR/LLM Agent/TTS 管道
+kind: standalone
+provides_tools:
+  - voice_status
+  - voice_speak
+  - voice_listen_once
+  - voice_pipeline_start
+  - voice_pipeline_stop
+  - voice_config
+  - voice_interrupt

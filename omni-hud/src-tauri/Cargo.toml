@@ -1,0 +1,42 @@
+[package]
+name = "omni-hud"
+version = "0.1.0"
+description = "AI-Omni desktop HUD shell (transparent always-on-top overlay)"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "omni_hud_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.30"
+# M5.4：语音状态文件监听（notify）与家目录解析（dirs）。
+notify = "6"
+dirs = "6"
+# M7.5：objc 直接调用 Cocoa API 设置窗口层级为 screenSaver 级
+objc = "0.2"
+# 错误处理与日志
+anyhow = "1"
+log = "0.4"
+# macOS CoreGraphics（鼠标位置轮询，zones.rs）
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.23"
+
+[dev-dependencies]
+# 启用 tauri::test（mock runtime + IPC 断言），供 lib.rs 的 command 注册锚点测试使用。
+tauri = { version = "2", features = ["test"] }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true

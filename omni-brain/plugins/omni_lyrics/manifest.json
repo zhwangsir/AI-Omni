@@ -1,0 +1,37 @@
+{
+  "name": "omni_lyrics",
+  "version": "0.1.0",
+  "description": "多源歌词匹配插件 - LRC解析/多源优先级链/同步显示，支持本地.lrc/音频内嵌/在线API（复用 omni_music 源）",
+  "author": "AI-Omni",
+  "permissions": [
+    "tools.register",
+    "network",
+    "fs.read:./state",
+    "fs.write:./state"
+  ],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0",
+    "omni_music": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "lyrics.loaded",
+      "lyrics.line_changed",
+      "lyrics.offset_changed"
+    ],
+    "subscribes": [
+      "music.track_changed",
+      "music.started",
+      "music.paused",
+      "music.stopped"
+    ]
+  },
+  "tools": [
+    "lyrics_get",
+    "lyrics_search",
+    "lyrics_set_offset",
+    "lyrics_upload",
+    "lyrics_get_current"
+  ]
+}

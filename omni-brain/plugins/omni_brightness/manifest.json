@@ -1,0 +1,21 @@
+{
+  "name": "omni_brightness",
+  "version": "0.1.0",
+  "description": "屏幕亮度控制插件 - macOS brightness CLI 桥接，支持设置/查询亮度",
+  "author": "AI-Omni",
+  "permissions": [
+    "tools.register"
+  ],
+  "platforms": ["macos"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": ["system.brightness_changed"],
+    "subscribes": []
+  },
+  "tools": [
+    "system_set_brightness",
+    "system_get_brightness"
+  ]
+}

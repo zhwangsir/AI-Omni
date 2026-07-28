@@ -1,0 +1,20 @@
+{
+  "name": "omni_fullscreen_detect",
+  "version": "0.1.0",
+  "description": "全屏应用检测插件 - 检测当前 macOS 全屏应用",
+  "author": "AI-Omni",
+  "permissions": ["tools.register"],
+  "platforms": ["macos"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "system.fullscreen_changed"
+    ],
+    "subscribes": []
+  },
+  "tools": [
+    "system_detect_fullscreen_app"
+  ]
+}

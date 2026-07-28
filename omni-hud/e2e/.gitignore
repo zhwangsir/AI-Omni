@@ -1,0 +1,6 @@
+# Playwright E2E 临时产出（不入库）
+.report/
+.test-output/
+
+# 视觉回归基线入库（chromium/），但保留目录结构
+!__screenshots__/

@@ -1,0 +1,453 @@
+/* 全局样式：窗口契约要求 html/body 背景透明，内容退到面板之后。 */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent; /* 窗口契约：透明背景，透出桌面 */
+  overflow: hidden;
+  font-family: var(--omni-font);
+  color: var(--omni-fog);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+/*
+ * HUD 根：近黑非纯黑显影液底（abyss 基底 + panel 覆盖）。
+ * 禁磨砂玻璃——不使用 backdrop-filter blur；景深由粒子层轻微模糊承担。
+ * 主题切换经 CSS 变量整体换肤，过渡短促克制（reduced-motion 下全局关闭）。
+ */
+.hud-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: linear-gradient(var(--omni-panel), var(--omni-panel)), var(--omni-abyss);
+  border: 1px solid var(--omni-hairline);
+  border-radius: var(--omni-radius);
+  transition: background-color 260ms ease-out, border-color 260ms ease-out;
+}
+
+/*
+ * 暗角（vignette）：边缘压暗引导视线聚焦中央内容。
+ * 盖在所有层之上但 pointer-events 关闭，绝不拦截交互。
+ */
+.hud-root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  background: radial-gradient(
+    ellipse 118% 118% at 50% 44%,
+    transparent 52%,
+    rgba(0, 0, 0, 0.42) 100%
+  );
+  pointer-events: none;
+}
+
+/*
+ * 胶片颗粒（film grain）：SVG feTurbulence 静态噪点，极低透明度。
+ * 静态不闪烁（红线）；overlay 混合让颗粒同时落在亮部与暗部上。
+ */
+.hud-root::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+/*
+ * 粒子背景层：永远在内容层之下，不遮挡文字与控件。
+ * 轻微高斯模糊营造景深（depth of field）——背景柔、前景 UI 锐利。
+ * 普通 filter 而非 backdrop-filter，不违反禁磨砂玻璃约束。
+ */
+.particle-field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  filter: blur(0.6px);
+}
+
+/*
+ * 3D 沉浸空间宿主（M5.1）：与 M4 粒子层同位——永远在内容层之下，
+ * 不遮挡文字与控件（pointer-events 由组件内联关闭）。
+ * 景深不再经 CSS 模糊：soft sprite + bloom 在 GPU 内形成自然 bokeh，
+ * 前景 UI 保持锐利；禁磨砂玻璃约束不变。
+ */
+.immersive-space-host {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.immersive-space-host canvas.immersive-space {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hud-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/*
+ * 环境光（M4.4）：低透明度强调色光晕，lerp 柔和跟随鼠标。
+ * 负 margin 让光晕中心对准 JS 写入的 translate3d 坐标；
+ * z-index 0 沉在内容之内最底层，pointer-events 关闭。
+ */
+.ambient-light {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  width: 320px;
+  height: 320px;
+  margin-left: -160px;
+  margin-top: -160px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--omni-accent) 14%, transparent) 0%,
+    transparent 68%
+  );
+  will-change: transform;
+}
+
+/*
+ * 水波纹层（M4.4）：absolute 铺满内容区，overflow 裁剪出界波纹；
+ * z-index 2 盖在内容之上但 pointer-events 关闭——不遮挡文字交互。
+ */
+.ripple-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/* 单层同心圆：从点击中心（left/top）向外慢速扩散并渐隐 */
+.ripple__ring {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--omni-accent);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0);
+  animation: omni-ripple var(--omni-ripple-duration, 1500ms) ease-out forwards;
+  will-change: transform, opacity;
+}
+
+/*
+ * 波纹扩散：ease-out 物理感——起步快、收尾缓；
+ * 先淡入到 0.28 再随扩散渐隐，多层错峰自然形成同心圆涟漪。
+ */
+@keyframes omni-ripple {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0);
+  }
+  12% {
+    opacity: 0.28;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* 尊重 prefers-reduced-motion：关闭一切过渡与动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/*
+ * M7.4 显影场视觉规范（Film Atelier 暗房风）：
+ * - FieldStage 全屏定位（粒子层 z=0 之上字幕层之下），flowline canvas 底部；
+ * - CaptionLayer 全屏覆盖，状态标左上 mono 小字，字幕下三分之一居中纯排版，
+ *   显影态 blur(0)，渐隐态 blur(4px) 240ms 过渡；
+ * - WellZone 底部居中椭圆区，控制环发丝描边 + accent 点缀。
+ * 克制暗房风：无高饱和 / 无大面积闪烁 / 无粒子爆炸 / 无快速频闪；
+ * reduced-motion 下全局 animation/transition 已关闭，元素直显直隐。
+ */
+
+/* FieldStage：全屏语义层（粒子层 z=0 之上，字幕层之下）。 */
+.field-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* flowline canvas：底部细波形流线，绝不遮挡字幕与交互。 */
+.field-stage canvas {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: auto;
+}
+
+/* CaptionLayer：全屏覆盖（状态标 + 字幕 + 打断 glyph 统一容器）。 */
+.caption-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* 状态标：左上 mono 小字（胶片片头标风格），低亮度 + 略宽 letter-spacing，
+ * 显影 opacity:1，2.5s ease-out 渐隐到 0（reduced-motion 下直显直隐）。 */
+.caption-status-mark {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--omni-dim);
+  opacity: 0;
+  transition: opacity 2500ms ease-out;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.caption-status-mark[data-visible="true"] {
+  opacity: 1;
+}
+
+/* 字幕：下三分之一居中，纯排版无框无底条；柔和文字阴影保可读；
+ * 默认 blur(4px)，--visible 修饰类切到 blur(0)，240ms ease-out 过渡。 */
+.caption-subtitle {
+  position: absolute;
+  bottom: 33%;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 70%;
+  text-align: center;
+  color: var(--omni-fog);
+  font-size: 18px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  filter: blur(4px);
+  transition: filter 240ms ease-out;
+  pointer-events: none;
+}
+
+.caption-subtitle--visible {
+  filter: blur(0);
+}
+
+.caption-subtitle-text {
+  display: inline-block;
+}
+
+/* 打断 glyph：字幕区右端聚集，button 重置 + hairline 描边 + accent hover。 */
+.caption-interrupt {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: 8px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--omni-hairline);
+  border-radius: 50%;
+  color: var(--omni-dim);
+  cursor: pointer;
+  transition: color 200ms ease-out, border-color 200ms ease-out;
+}
+
+.caption-interrupt:hover {
+  color: var(--omni-accent);
+  border-color: var(--omni-accent);
+}
+
+/* WellZone：底部居中椭圆区（约 320×180，下缘贴屏）。 */
+.well-zone {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 320px;
+  height: 180px;
+  transform: translateX(-50%);
+  pointer-events: none; /* 分区可交互性由 zones 控制或 JS 切换 */
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 控制环：发丝描边椭圆；挂载即 spring 感聚集（240ms ease-out），
+ * 卸载即隐（reduced-motion 下 animation 全局关闭，直显）。 */
+.well-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--omni-hairline);
+  border-radius: 50%;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: omni-well-ring-reveal 240ms ease-out forwards;
+}
+
+@keyframes omni-well-ring-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 语音状态点：accent 色（管道不可用时灰）。 */
+.well-status-dot {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--omni-accent);
+  pointer-events: none;
+}
+
+.well-status-dot[data-available="false"] {
+  background: var(--omni-dim);
+}
+
+/* 主题点：每主题一点，点击切换；hairline 描边 + 主题 accent 填充。 */
+.well-theme-dot {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: 1px solid var(--omni-hairline);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 200ms ease-out, border-color 200ms ease-out;
+}
+
+.well-theme-dot:hover {
+  transform: scale(1.15);
+  border-color: var(--omni-accent);
+}
+
+.well-theme-dot[data-active="true"] {
+  border-color: var(--omni-accent);
+}
+
+/* 睡眠切换：button 重置 + hairline 描边 + accent hover。 */
+.well-sleep-toggle {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--omni-hairline);
+  border-radius: 50%;
+  color: var(--omni-dim);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 200ms ease-out, border-color 200ms ease-out;
+}
+
+.well-sleep-toggle:hover {
+  color: var(--omni-accent);
+  border-color: var(--omni-accent);
+}
+
+/* 井心点击入口：caption 卡显隐触发点。 */
+.well-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--omni-hairline);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: border-color 200ms ease-out;
+}
+
+.well-center:hover {
+  border-color: var(--omni-accent);
+}
+
+/* caption 卡片：暗色半透明背景 + hairline + 圆角。 */
+.well-caption-card {
+  position: absolute;
+  bottom: 200px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 240px;
+  max-width: 320px;
+  padding: 10px 14px;
+  background: rgba(18, 20, 24, 0.88);
+  border: 1px solid var(--omni-hairline);
+  border-radius: var(--omni-radius);
+  color: var(--omni-fog);
+  font-size: 12px;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.well-caption-state {
+  color: var(--omni-accent);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.well-caption-reply {
+  color: var(--omni-fog);
+  line-height: 1.4;
+}

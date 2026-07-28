@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>M6.1 spike · OpenTalking WebRTC 浏览器复现页</title>
+<style>
+  body { background:#111; color:#ddd; font:13px/1.5 ui-monospace,Menlo,monospace; margin:16px; }
+  h1 { font-size:16px; }
+  #panel { display:flex; gap:16px; }
+  #v { width:280px; background:#000; border:1px solid #333; }
+  table td { padding:1px 8px 1px 0; vertical-align:top; }
+  td.k { color:#888; }
+  #log { margin-top:12px; max-height:300px; overflow:auto; white-space:pre-wrap; color:#9c9; }
+  button { font:inherit; padding:6px 14px; margin-right:8px; }
+</style>
+</head>
+<body>
+<h1>M6.1 spike · OpenTalking WebRTC 接收验证</h1>
+<div>
+  <button id="connect">1. connect</button>
+  <button id="speak" disabled>2. speak (edge TTS)</button>
+</div>
+<div id="panel">
+  <video id="v" autoplay playsinline muted></video>
+  <table id="stats"></table>
+</div>
+<div id="log"></div>
+
+<script>
+"use strict";
+const API = "http://127.0.0.1:8210";
+const S = {
+  step: "idle", error: null, sessionId: null, sessionState: null,
+  iceState: "new", connState: "new", signalingState: null,
+  tracks: [], videoWidth: 0, videoHeight: 0, frames: 0, fpsWindow: [],
+  audioUnmuted: false, audioLevel: 0, audioLevelPeak: 0,
+  speakPosted: false, speakResponse: null,
+};
+window.__SPIKE = S;
+const $stats = document.getElementById("stats");
+const $log = document.getElementById("log");
+function log(...a) {
+  const line = new Date().toISOString().slice(11, 23) + " " + a.join(" ");
+  $log.textContent += line + "\n";
+  $log.scrollTop = $log.scrollHeight;
+  console.log(line);
+}
+function render() {
+  const rows = [
+    ["step", S.step], ["error", S.error || "-"], ["sessionId", S.sessionId || "-"],
+    ["sessionState", S.sessionState || "-"], ["iceState", S.iceState], ["connState", S.connState],
+    ["signaling", S.signalingState || "-"],
+    ["tracks", S.tracks.map(t => `${t.kind}:${t.readyState}:${t.muted ? "muted" : "live"}`).join(" ") || "-"],
+    ["video", S.videoWidth + "x" + S.videoHeight], ["frames", S.frames],
+    ["audioUnmuted", S.audioUnmuted], ["audioLevel", S.audioLevel.toFixed(5)],
+    ["audioLevelPeak", S.audioLevelPeak.toFixed(5)],
+    ["speak", S.speakPosted ? JSON.stringify(S.speakResponse) : "-"],
+  ];
+  $stats.innerHTML = rows.map(r => `<tr><td class="k">${r[0]}</td><td>${r[1]}</td></tr>`).join("");
+}
+setInterval(render, 250);
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(`${opts?.method || "GET"} ${path} -> ${r.status} ${JSON.stringify(body)}`);
+  return body;
+}
+
+let pc = null, audioCtx = null;
+
+async function connect() {
+  document.getElementById("connect").disabled = true;
+  try {
+    // AudioContext 需要在用户手势里 resume（autoplay 策略）
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.resume().catch(e => log("audioCtx.resume warn:", e.message));
+
+    S.step = "create-session";
+    const sess = await api("/sessions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ avatar_id: "dogo-light2d", model: "mock", tts_provider: "edge" }),
+    });
+    S.sessionId = sess.session_id || sess.id;
+    log("session created:", S.sessionId);
+
+    S.step = "start-session";
+    await api(`/sessions/${S.sessionId}/start`, { method: "POST" });
+    for (let i = 0; i < 60; i++) {
+      const st = await api(`/sessions/${S.sessionId}`);
+      S.sessionState = st.state || st.status;
+      if (S.sessionState === "ready") break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (S.sessionState !== "ready") throw new Error("session not ready: " + S.sessionState);
+    log("session ready");
+
+    S.step = "ice-config";
+    const iceCfg = await api("/sessions/webrtc/ice-config").catch(e => {
+      log("ice-config fetch failed, fallback to no-STUN:", e.message);
+      return { iceServers: [] };
+    });
+    log("ice config:", JSON.stringify(iceCfg));
+
+    S.step = "peerconnection";
+    pc = new RTCPeerConnection(iceCfg);
+    pc.addTransceiver("audio", { direction: "recvonly" });
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.oniceconnectionstatechange = () => { S.iceState = pc.iceConnectionState; log("iceConnectionState:", S.iceState); };
+    pc.onconnectionstatechange = () => { S.connState = pc.connectionState; log("connectionState:", S.connState); };
+    pc.onsignalingstatechange = () => { S.signalingState = pc.signalingState; };
+    pc.onicecandidate = (e) => { if (e.candidate) log("local candidate:", e.candidate.candidate.slice(0, 80)); };
+    pc.ontrack = onTrack;
+
+    S.step = "offer";
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    // 等 ICE gathering 完成（aiortc 不支持 trickle），4s 超时兜底
+    if (pc.iceGatheringState !== "complete") {
+      await new Promise(res => {
+        const to = setTimeout(res, 4000);
+        pc.addEventListener("icegatheringstatechange", () => {
+          if (pc.iceGatheringState === "complete") { clearTimeout(to); res(); }
+        });
+      });
+    }
+    log("gathering state:", pc.iceGatheringState, "| offer sdp bytes:", pc.localDescription.sdp.length);
+
+    S.step = "post-offer";
+    const answer = await api(`/sessions/${S.sessionId}/webrtc/offer`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sdp: pc.localDescription.sdp, type: "offer" }),
+    });
+    log("answer received, sdp bytes:", (answer.sdp || "").length);
+    await pc.setRemoteDescription({ type: answer.type || "answer", sdp: answer.sdp });
+    S.step = "waiting-track";
+  } catch (e) {
+    S.error = String(e.message || e);
+    S.step = "failed";
+    log("ERROR:", S.error);
+  }
+}
+
+function onTrack(ev) {
+  const t = ev.track;
+  S.tracks.push({ kind: t.kind, readyState: t.readyState, muted: t.muted, id: t.id.slice(0, 8) });
+  log("ontrack:", t.kind, "readyState=", t.readyState, "muted=", t.muted, "streams=", ev.streams.length);
+  t.onunmute = () => {
+    log("track unmute:", t.kind);
+    const rec = S.tracks.find(x => x.id === t.id.slice(0, 8));
+    if (rec) rec.muted = false;
+    if (t.kind === "audio") S.audioUnmuted = true;
+  };
+  t.onended = () => log("track ended:", t.kind);
+  const stream = ev.streams[0] || new MediaStream([t]);
+  const v = document.getElementById("v");
+  if (!v.srcObject) {
+    v.srcObject = stream;
+    v.play().catch(e => log("video.play() warn:", e.message));
+    wireVideoStats(v);
+  }
+  if (t.kind === "audio") wireAudioLevel(stream);
+}
+
+function wireVideoStats(v) {
+  v.onloadedmetadata = () => { S.videoWidth = v.videoWidth; S.videoHeight = v.videoHeight; log("loadedmetadata:", v.videoWidth + "x" + v.videoHeight); };
+  v.onresize = () => { S.videoWidth = v.videoWidth; S.videoHeight = v.videoHeight; };
+  if (v.requestVideoFrameCallback) {
+    const cb = () => { S.frames++; v.requestVideoFrameCallback(cb); };
+    v.requestVideoFrameCallback(cb);
+  } else {
+    log("requestVideoFrameCallback 不可用，退化用定时器按 currentTime 推进统计帧");
+    let last = -1;
+    setInterval(() => { if (v.currentTime !== last) { S.frames++; last = v.currentTime; } }, 100);
+  }
+}
+
+function wireAudioLevel(stream) {
+  if (!audioCtx) return;
+  try {
+    const src = audioCtx.createMediaStreamSource(stream);
+    const an = audioCtx.createAnalyser();
+    an.fftSize = 2048;
+    src.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+      S.audioLevel = rms;
+      if (rms > S.audioLevelPeak) S.audioLevelPeak = rms;
+    }, 100);
+    log("audio analyser wired");
+  } catch (e) { log("wireAudioLevel error:", e.message); }
+}
+
+async function speak() {
+  const text = "你好，这里是 AI-Omni M 六点一 spike 音频验证。一二三四五，上山打老虎。";
+  log("POST speak:", text);
+  const r = await api(`/sessions/${S.sessionId}/speak`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  S.speakPosted = true;
+  S.speakResponse = r;
+  log("speak response:", JSON.stringify(r));
+}
+
+document.getElementById("connect").addEventListener("click", () => {
+  connect().then(() => { if (!S.error) document.getElementById("speak").disabled = false; });
+});
+document.getElementById("speak").addEventListener("click", () => speak().catch(e => log("speak ERROR:", e.message)));
+log("page loaded, API =", API);
+</script>
+</body>
+</html>

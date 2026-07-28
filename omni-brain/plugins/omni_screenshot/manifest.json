@@ -1,0 +1,22 @@
+{
+  "name": "omni_screenshot",
+  "version": "0.1.0",
+  "description": "屏幕截图插件 - macOS screencapture 桥接，支持全屏/区域截图",
+  "author": "AI-Omni",
+  "permissions": [
+    "tools.register",
+    "fs.write:~/Pictures"
+  ],
+  "platforms": ["macos"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": ["system.screenshot_taken"],
+    "subscribes": []
+  },
+  "tools": [
+    "system_screenshot_full",
+    "system_screenshot_region"
+  ]
+}

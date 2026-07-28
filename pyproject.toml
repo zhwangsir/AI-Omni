@@ -1,0 +1,18 @@
+[project]
+name = "ai-omni"
+version = "0.1.0"
+description = "本地大脑 + 插件化能力的 AI 全能助手（Phase 1: 语音交互 MVP）"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "omni-brain/plugins"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["omni-brain/plugins/omni_voice", "omni-brain/plugins/omni_home"]
+omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

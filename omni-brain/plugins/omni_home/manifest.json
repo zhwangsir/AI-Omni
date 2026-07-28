@@ -1,0 +1,33 @@
+{
+  "name": "omni_home",
+  "version": "0.1.0",
+  "description": "智能家居控制插件 - Home Assistant 桥接 + 自然语言设备控制",
+  "author": "AI-Omni",
+  "permissions": [
+    "network",
+    "home.control",
+    "fs.read:./state",
+    "fs.write:./state",
+    "tools.register"
+  ],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "home.entity_changed",
+      "home.scene_applied",
+      "home.control_executed"
+    ],
+    "subscribes": ["voice.asr_final"]
+  },
+  "tools": [
+    "home_status",
+    "home_refresh",
+    "home_control",
+    "home_query",
+    "home_list",
+    "home_config"
+  ]
+}

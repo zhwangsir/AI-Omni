@@ -1,0 +1,30 @@
+/*
+ * Film Atelier 暗房风格 token（M4.4 完整落地）。
+ * 基调：近黑非纯黑的显影液底色、低亮度环境光、克制的安全灯强调色。
+ * 默认值 = themes.ts 内置「显影琥珀」主题；themeStore 启动即把当前主题
+ * 整套写入同名 CSS 变量（--omni-abyss/panel/hairline/fog/dim/accent +
+ * --omni-particle-1..5），此处默认值只保证首帧不裸奔。
+ */
+:root {
+  /* 背景与面板（近黑非纯黑；面板高不透明度——禁磨砂玻璃） */
+  --omni-abyss: #0b0c0e;
+  --omni-panel: rgba(18, 20, 24, 0.88);
+  --omni-hairline: rgba(216, 217, 220, 0.08);
+
+  /* 前景 */
+  --omni-fog: #d8d9dc;
+  --omni-dim: #83878f;
+
+  /* 强调：暗房安全灯（低饱和、克制；themeStore 写入 --omni-accent） */
+  --omni-accent: #c9a86a;
+
+  /* 粒子调色板（≤ 5 色，与 src/particles/constraints.ts PALETTE 同步） */
+  --omni-particle-1: #c9a86a;
+  --omni-particle-2: #8b93a7;
+  --omni-particle-3: #d8d9dc;
+  --omni-particle-4: #5d6678;
+  --omni-particle-5: #b04a3a;
+
+  --omni-radius: 10px;
+  --omni-font: "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+}

@@ -1,0 +1,48 @@
+{
+  "name": "omni_music",
+  "version": "0.2.0",
+  "description": "音乐源接入插件 - 多源搜索/扫码登录/Cookie加密存储，支持网易云/QQ/本地音乐（仅免费试听，VIP需登录）；M19 扩展本地音乐库管理（SQLite索引/FTS5搜索/歌单/播放历史/加密音频解密）",
+  "author": "AI-Omni",
+  "permissions": [
+    "tools.register",
+    "network",
+    "fs.read:./music",
+    "fs.write:./music"
+  ],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "music.search_done",
+      "music.login_confirmed",
+      "music.login_expired",
+      "music.library_scanned",
+      "music.playlist_updated"
+    ],
+    "subscribes": []
+  },
+  "tools": [
+    "music_search",
+    "music_get_login_qr",
+    "music_check_login_status",
+    "music_play",
+    "music_pause",
+    "music_resume",
+    "music_stop",
+    "music_next",
+    "music_previous",
+    "music_seek",
+    "music_set_repeat_mode",
+    "music_get_player_state",
+    "music_library_scan",
+    "music_library_search",
+    "music_library_status",
+    "music_playlist_create",
+    "music_playlist_add",
+    "music_playlist_remove",
+    "music_playlist_list",
+    "music_decrypt_file"
+  ]
+}

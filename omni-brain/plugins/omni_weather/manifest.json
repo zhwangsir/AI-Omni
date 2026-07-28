@@ -1,0 +1,34 @@
+{
+  "name": "omni_weather",
+  "version": "0.1.0",
+  "description": "天气情绪电台（Open-Meteo + 情绪映射 + 视觉/音乐/家居联动建议）",
+  "author": "AI-Omni",
+  "permissions": [
+    "network",
+    "fs.read:~/.ai-omni/weather",
+    "fs.write:~/.ai-omni/weather",
+    "tools.register"
+  ],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "weather.mood_changed",
+      "weather.home_hint",
+      "weather.updated"
+    ],
+    "subscribes": []
+  },
+  "tools": [
+    "weather_get",
+    "weather_forecast",
+    "weather_set_location",
+    "weather_get_location",
+    "weather_get_mood",
+    "weather_refresh",
+    "weather_search_city",
+    "weather_status"
+  ]
+}

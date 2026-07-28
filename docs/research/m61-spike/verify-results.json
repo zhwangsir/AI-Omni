@@ -1,0 +1,140 @@
+[
+  {
+    "browser": "webkit",
+    "checks": {
+      "iceState": "connected",
+      "tracks": [
+        {
+          "kind": "audio",
+          "readyState": "live",
+          "muted": true,
+          "id": "22ab7c97"
+        },
+        {
+          "kind": "video",
+          "readyState": "live",
+          "muted": false,
+          "id": "c7affa9b"
+        }
+      ],
+      "videoSize": "560x1024",
+      "framesTotal": 55,
+      "fpsMeasured": "24.5",
+      "connState": "connected",
+      "signalingState": "stable",
+      "speakPosted": true,
+      "speakResponse": {
+        "session_id": "sess_38902e44b6da",
+        "status": "queued"
+      },
+      "audioUnmuted": true,
+      "audioLevelPeak": 0.14784561538761343,
+      "audioAlive": true,
+      "verdicts": {
+        "ice": true,
+        "videoSize560x1024": true,
+        "fpsPositive": true,
+        "audio": true
+      }
+    },
+    "ok": true,
+    "elapsedMs": 17913,
+    "consoleTail": [
+      "12:02:07.999 page loaded, API = http://127.0.0.1:8210",
+      "12:02:08.111 session created: sess_38902e44b6da",
+      "12:02:08.114 session ready",
+      "12:02:08.116 ice config: {\"iceServers\":[{\"urls\":\"stun:stun.l.google.com:19302\"}],\"iceTransportPolicy\":\"all\"}",
+      "12:02:08.139 local candidate: candidate:1606544326 1 udp 2113939711 e33d7127-65d6-4790-a53d-9c6ce95920ee.local",
+      "12:02:08.151 local candidate: candidate:1606544326 1 udp 2113939711 935fadaa-47b7-49be-a238-f3abd408783f.local",
+      "12:02:08.152 local candidate: candidate:1615796908 1 udp 2113937151 0d5e49e9-b220-434f-80d1-24b1a1c6c2fc.local",
+      "12:02:08.152 local candidate: candidate:1615796908 1 udp 2113937151 559b805c-40b5-4255-9074-838606b4ef53.local",
+      "12:02:08.305 local candidate: candidate:4145016306 1 udp 1677729535 114.86.124.125 60542 typ srflx raddr 0.0.0",
+      "12:02:08.308 local candidate: candidate:4145016306 1 udp 1677729535 114.86.124.125 60543 typ srflx raddr 0.0.0",
+      "12:02:08.424 local candidate: candidate:2233274625 1 udp 1677732095 240e:b8f:1d22:e700:c89:303d:9926:cef2 6173",
+      "12:02:08.425 local candidate: candidate:2233274625 1 udp 1677732095 240e:b8f:1d22:e700:c89:303d:9926:cef2 5256",
+      "12:02:08.425 gathering state: complete | offer sdp bytes: 5552",
+      "12:02:14.435 answer received, sdp bytes: 5091",
+      "12:02:14.436 iceConnectionState: checking",
+      "12:02:14.437 connectionState: connecting",
+      "12:02:14.437 iceConnectionState: connected",
+      "12:02:14.437 ontrack: audio readyState= live muted= true streams= 1",
+      "12:02:14.438 audio analyser wired",
+      "12:02:14.438 ontrack: video readyState= live muted= true streams= 1",
+      "12:02:14.457 connectionState: connected",
+      "12:02:14.461 track unmute: video",
+      "12:02:14.520 loadedmetadata: 560x1024",
+      "12:02:16.807 POST speak: 你好，这里是 AI-Omni M 六点一 spike 音频验证。一二三四五，上山打老虎。",
+      "12:02:16.812 speak response: {\"session_id\":\"sess_38902e44b6da\",\"status\":\"queued\"}",
+      "12:02:18.199 track unmute: audio"
+    ]
+  },
+  {
+    "browser": "chromium",
+    "checks": {
+      "iceState": "connected",
+      "tracks": [
+        {
+          "kind": "audio",
+          "readyState": "live",
+          "muted": true,
+          "id": "0e0c0cb5"
+        },
+        {
+          "kind": "video",
+          "readyState": "live",
+          "muted": false,
+          "id": "5b1f251a"
+        }
+      ],
+      "videoSize": "560x1024",
+      "framesTotal": 55,
+      "fpsMeasured": "24.5",
+      "connState": "connected",
+      "signalingState": "stable",
+      "speakPosted": true,
+      "speakResponse": {
+        "session_id": "sess_123afba571f5",
+        "status": "queued"
+      },
+      "audioUnmuted": true,
+      "audioLevelPeak": 0.16193579815163134,
+      "audioAlive": true,
+      "verdicts": {
+        "ice": true,
+        "videoSize560x1024": true,
+        "fpsPositive": true,
+        "audio": true
+      }
+    },
+    "ok": true,
+    "elapsedMs": 17681,
+    "consoleTail": [
+      "12:02:25.944 page loaded, API = http://127.0.0.1:8210",
+      "12:02:26.095 session created: sess_123afba571f5",
+      "12:02:26.097 session ready",
+      "12:02:26.116 ice config: {\"iceServers\":[{\"urls\":\"stun:stun.l.google.com:19302\"}],\"iceTransportPolicy\":\"all\"}",
+      "12:02:26.120 local candidate: candidate:1949831454 1 udp 2113937151 94270671-1231-4c09-ad66-05458d61c0b2.local",
+      "12:02:26.121 local candidate: candidate:3646953385 1 udp 2113939711 115c1f35-bfcf-4cfb-b258-78e8890ec77d.local",
+      "12:02:26.121 local candidate: candidate:1949831454 1 udp 2113937151 94270671-1231-4c09-ad66-05458d61c0b2.local",
+      "12:02:26.121 local candidate: candidate:3646953385 1 udp 2113939711 115c1f35-bfcf-4cfb-b258-78e8890ec77d.local",
+      "12:02:26.275 local candidate: candidate:4168887578 1 udp 1677729535 114.86.124.125 57595 typ srflx raddr 0.0.0",
+      "12:02:26.299 local candidate: candidate:4168887578 1 udp 1677729535 114.86.124.125 57596 typ srflx raddr 0.0.0",
+      "12:02:26.342 local candidate: candidate:3703217216 1 udp 1677732095 240e:b8f:1d22:e700:c89:303d:9926:cef2 6291",
+      "12:02:26.342 local candidate: candidate:3703217216 1 udp 1677732095 240e:b8f:1d22:e700:c89:303d:9926:cef2 5091",
+      "12:02:26.342 gathering state: complete | offer sdp bytes: 7058",
+      "12:02:32.348 answer received, sdp bytes: 5322",
+      "12:02:32.348 iceConnectionState: checking",
+      "12:02:32.349 connectionState: connecting",
+      "12:02:32.350 ontrack: audio readyState= live muted= true streams= 1",
+      "12:02:32.351 audio analyser wired",
+      "12:02:32.351 ontrack: video readyState= live muted= true streams= 1",
+      "12:02:32.351 iceConnectionState: connected",
+      "12:02:32.370 connectionState: connected",
+      "12:02:32.375 track unmute: video",
+      "12:02:32.377 loadedmetadata: 560x1024",
+      "12:02:34.591 POST speak: 你好，这里是 AI-Omni M 六点一 spike 音频验证。一二三四五，上山打老虎。",
+      "12:02:34.599 speak response: {\"session_id\":\"sess_123afba571f5\",\"status\":\"queued\"}",
+      "12:02:36.062 track unmute: audio"
+    ]
+  }
+]
