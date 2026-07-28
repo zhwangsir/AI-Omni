@@ -2,8 +2,8 @@
   "project": "AI-Omni",
   "description": "本地大脑 + 插件化能力的 AI 全能助手（五层架构，隐私优先，核心数据全部本地运行）",
   "created": "2026-07-20",
-  "current_phase": 4,
-  "current_milestone": "M25",
+  "current_phase": 5,
+  "current_milestone": "M32",
   "phases": [
     {
       "id": 1,
@@ -23,7 +23,7 @@
     {
       "id": 4,
       "name": "多模态感知",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "id": 5,
@@ -1240,6 +1240,243 @@
         }
       ],
       "notes": "M25 完成两项核心任务：(1) 助手身份从「维纳斯」全面更名为「雪莉（Sherry）」，唤醒词响应「雪莉」/「sherry」，统一通过 omni_sdk/identity.py AssistantIdentity 集中管理身份信息，前端 identityStore 经 IPC 从 Rust→Python 链路加载，消除全代码库硬编码；(2) 模块整合优化——统一身份配置中心（omni_sdk/identity.py）消除模块间硬编码身份值分散问题、SystemPluginBase 消除 7 个系统插件重复代码、PythonCliRunner 统一 Rust 侧 Python CLI 调用、事件总线驱动跨插件联动（omni_lyrics 订阅 music.started、weather mood 经 storeCoordinator 联动前端 theme/music）、前端 storeCoordinator 协调跨 store 交互。修复两个测试阻断 bug：omni_music Song 模型字段 .title→.name（模型定义 name 为标题字段，4 处事件payload引用错误导致 15 failed）；Rust get_assistant_identity 从 async fn+spawn_blocking 改为同步 fn（tauri mock runtime 测试环境 spawn_blocking 无法正常执行返回 Null，同步函数在测试环境可直接执行）。全量回归全绿：pytest 1950 / vitest 1283 / cargo test 126 / tsc 0 errors / vite build ✓。"
+    },
+    {
+      "id": "M26",
+      "name": "系统优化：移除本地模型组件，统一 OpenClaw 网关调用",
+      "status": "completed",
+      "started": "2026-07-28",
+      "completed": "2026-07-28",
+      "test_summary": "pytest 1947 passed / omni_voice 覆盖率 89.87% (>=80%) / vitest 1283 passed / cargo test 126 passed / tsc --noEmit 0 errors / vite build ✓",
+      "subtasks": [
+        {
+          "id": "M26.1",
+          "name": "移除本地推理后端（faster_whisper_impl/silero/kokoro_impl/openwakeword_impl/piper 及 llama-cpp-python LocalLLMBridge）",
+          "status": "completed"
+        },
+        {
+          "id": "M26.2",
+          "name": "新增网关后端（OpenAIASR/OpenAITTS/EnergyVAD/VADWakeWord + LiteLLMBridge 统一走 OpenClaw :18789）",
+          "status": "completed"
+        },
+        {
+          "id": "M26.3",
+          "name": "配置收敛：删除 llm_backend/llm_model_path/llm_n_ctx/llm_temperature/llm_top_p/llm_max_tokens，默认 llm_endpoint 指向 http://localhost:18789/v1",
+          "status": "completed"
+        },
+        {
+          "id": "M26.4",
+          "name": "测试与文档更新（新增 test_gateway_backends.py/test_vad_wake.py，删除本地模型测试；更新 PROJECT_INIT.md/README.md/CLAUDE.md/GEMINI.md/ai-omni-prompts.md）",
+          "status": "completed"
+        }
+      ],
+      "notes": "M26 系统优化完成：ASR/TTS/LLM 统一经 OpenClaw 网关（:18789）OpenAI 兼容端点接入，本地仅保留纯 Python EnergyVAD（零依赖）与惰性导入可缺省的 sounddevice 音频采集/播放。移除 5 类本地模型实现与 6 个本地推理配置项，新增网关/轻量后端及配套契约测试。全量回归 1947 passed，omni_voice 覆盖率 89.87% ≥ 80%。"
+    },
+    {
+      "id": "M27",
+      "name": "OpenClaw 智能通信网关插件：基础骨架（omni_openclaw）",
+      "status": "completed",
+      "started": "2026-07-28",
+      "completed": "2026-07-28",
+      "test_summary": "pytest 20 passed / omni_openclaw 覆盖率 88.52% (>=80%)",
+      "subtasks": [
+        {
+          "id": "M27.1",
+          "name": "插件目录与 manifest.json（omni_openclaw/__init__.py + manifest.json，声明权限 network/tools.register 与 3 个 openclaw_* 工具）",
+          "status": "completed"
+        },
+        {
+          "id": "M27.2",
+          "name": "OmniPlugin 适配（OpenClawPlugin 继承 RegisterCompatPlugin，同时保留 register(ctx) 入口向后兼容）",
+          "status": "completed"
+        },
+        {
+          "id": "M27.3",
+          "name": "配置模型（OpenClawConfig 集中管理 openclaw01 网关/模型/微信/HA 端点，支持 OMNI_OPENCLAW_* 环境变量覆盖，ha_token 不进入 summary）",
+          "status": "completed"
+        },
+        {
+          "id": "M27.4",
+          "name": "HTTP 客户端抽象（OpenClawClient + HttpBackend 协议 + HttpxBackend 真实后端，支持依赖注入 fake backend 测试）",
+          "status": "completed"
+        },
+        {
+          "id": "M27.5",
+          "name": "统一错误响应（errors.py success_response/error_response 契约）",
+          "status": "completed"
+        }
+      ],
+      "notes": "M27 完成 omni_openclaw 基础骨架。遵循 AGENTS.md §四项目隔离纪律：只新增 AI-Omni 侧 omni_* 插件，不改 OpenClaw 源码，不替代 OpenClaw；所有调用通过 HTTP API 与配置文件进行，凭据不硬编码。"
+    },
+    {
+      "id": "M28",
+      "name": "OpenClaw 智能通信网关插件：微信消息发送",
+      "status": "completed",
+      "started": "2026-07-28",
+      "completed": "2026-07-28",
+      "test_summary": "pytest 116 passed / omni_openclaw 覆盖率 86.63% (>=80%)",
+      "subtasks": [
+        {
+          "id": "M28.1",
+          "name": "发送微信消息（client.send_wechat_message 经 wechat-bridge :9095 /wechat 投递 Alertmanager 格式告警，OpenClaw agent 完成微信投递）",
+          "status": "completed"
+        },
+        {
+          "id": "M28.2",
+          "name": "移除微信轮询（OpenClaw 网关未暴露公开的消息轮询 API，/v1/channels/openclaw-weixin/messages 返回 404）",
+          "status": "completed"
+        },
+        {
+          "id": "M28.3",
+          "name": "工具注册与 handler（openclaw_health / openclaw_send_wechat，handler 返回 JSON 字符串，_run_async 桥接 sync handler 与 async client）",
+          "status": "completed"
+        },
+        {
+          "id": "M28.4",
+          "name": "TDD 测试与真实可用性验证（test_client.py 断言 wechat-bridge Alertmanager payload；全量 pytest 2063 passed；真实探测 gateway/LLL1/wechat-bridge 均可达）",
+          "status": "completed"
+        }
+      ],
+      "notes": "M28 修正微信发送实现：OpenClaw 网关本身无发送微信的 REST 端点，改经 openclaw01:9095 的 wechat-bridge 投递。AI-Omni 插件侧正确构造 Alertmanager 告警并调用 /wechat；实际微信投递依赖 OpenClaw agent 的回复通道，当前 bridge 返回 delivery suppressed（agent 返回 NO_REPLY），属 OpenClaw/bridge 基础设施行为，AI-Omni 插件代码与集成点已验证可用。"
+    },
+    {
+      "id": "M29",
+      "name": "OpenClaw 智能通信网关插件：多模态 Nemotron 调用",
+      "status": "completed",
+      "started": "2026-07-28",
+      "completed": "2026-07-28",
+      "test_summary": "pytest 45 passed / omni_openclaw.multimodal 覆盖率 91% (>=80%)",
+      "subtasks": [
+        {
+          "id": "M29.1",
+          "name": "多模态消息构造（multimodal.py：build_vision_message / build_audio_message / build_video_message，OpenAI 兼容 image_url/audio_url/video_url 格式，支持 data URL base64）",
+          "status": "completed"
+        },
+        {
+          "id": "M29.2",
+          "name": "OpenClawClient 多模态 chat 方法（vision_chat / audio_chat / video_chat，调用 /v1/chat/completions，模型默认 qwen3.6-uncensored）",
+          "status": "completed"
+        },
+        {
+          "id": "M29.3",
+          "name": "工具注册与 handler（openclaw_vision_chat / openclaw_audio_chat / openclaw_video_chat，参数校验 prompt/image/audio/video/frames）",
+          "status": "completed"
+        },
+        {
+          "id": "M29.4",
+          "name": "TDD 测试（test_multimodal.py 25 测试：消息构造/ChatCompletion 解析/错误降级/data URL/视频 frames 数组；test_tools.py 扩展 3 个 handler 参数校验）",
+          "status": "completed"
+        }
+      ],
+      "notes": "M29 完成 omni_openclaw 多模态能力：AI-Omni 可上传图片/音频/视频帧给 Nemotron（实际部署为 qwen3.6-uncensored 全模态端点）并获取理解结果。测试使用 fake vLLM server，零真实模型依赖。"
+    },
+    {
+      "id": "M30",
+      "name": "OpenClaw 智能通信网关插件：智能家居控制",
+      "status": "completed",
+      "started": "2026-07-28",
+      "completed": "2026-07-28",
+      "test_summary": "pytest 25 passed / omni_openclaw.home 覆盖率 100% (>=80%)",
+      "subtasks": [
+        {
+          "id": "M30.1",
+          "name": "HA REST API 桥接（home.py HomeAssistantClient，复用 HttpxBackend，注入 fake backend 测试）",
+          "status": "completed"
+        },
+        {
+          "id": "M30.2",
+          "name": "灯光/风扇/空气净化器控制（control_light / control_fan / control_air_purifier，开关与参数透传）",
+          "status": "completed"
+        },
+        {
+          "id": "M30.3",
+          "name": "扬声器语音模式与 TTS 播报（speaker_voice_on/off / speaker_say，tts/speak 不可用时回退 script.speaker_say）",
+          "status": "completed"
+        },
+        {
+          "id": "M30.4",
+          "name": "TDD 测试（test_home.py 25 测试覆盖成功/失败/参数校验/超时/异常/生命周期）",
+          "status": "completed"
+        }
+      ],
+      "notes": "M30 为 omni_openclaw 插件增加智能家居控制能力：通过 HA REST API 控制灯、风扇、空气净化器，并管理扬声器语音模式与播报。凭据通过 OpenClawConfig 注入，不硬编码；测试使用 FakeBackend，不依赖真实 HA 服务。"
+    },
+    {
+      "id": "M31",
+      "name": "OpenClaw 智能通信网关插件：集群巡检与设备管家",
+      "status": "completed",
+      "started": "2026-07-28",
+      "completed": "2026-07-28",
+      "test_summary": "pytest 70 passed / omni_openclaw.cluster 覆盖率 93% (>=80%)",
+      "subtasks": [
+        {
+          "id": "M31.1",
+          "name": "并行 HTTP 端点探测（cluster.py ClusterChecker.health_check，P0/P1/P2 分级：gateway/llm_l1 为 P0，llm_l4/comfyui/tts/embedding 为 P1，ssh_hosts 为 P2）",
+          "status": "completed"
+        },
+        {
+          "id": "M31.2",
+          "name": "SSH 主机健康探测（可注入 SshRunner，默认 asyncssh 惰性导入，缺失时跳过并标记 unknown）",
+          "status": "completed"
+        },
+        {
+          "id": "M31.3",
+          "name": "设备文档查询（device_lookup 读取 AIHub/设备说明.md，按关键词匹配返回设备信息）",
+          "status": "completed"
+        },
+        {
+          "id": "M31.4",
+          "name": "工具注册与 handler（openclaw_cluster_health / openclaw_device_lookup，返回分级报告与设备信息）",
+          "status": "completed"
+        },
+        {
+          "id": "M31.5",
+          "name": "TDD 测试（test_cluster.py 25 测试：并行探测/超时/分级报告/SSH fake/device_lookup 关键词匹配/文件不存在降级）",
+          "status": "completed"
+        }
+      ],
+      "notes": "M31 完成 omni_openclaw 集群巡检能力：AI-Omni 可执行 OpenClaw 网关、LLM、ComfyUI、TTS、Embedding 等端点的并行健康检查，返回 P0/P1/P2 分级报告；支持 SSH 主机探测与 AIHub 设备说明文档查询。测试全部使用 fake HTTP/SSH backend，不依赖真实集群。"
+    },
+    {
+      "id": "M32",
+      "name": "OpenClaw 智能通信网关插件：AICG 四层流水线",
+      "status": "completed",
+      "started": "2026-07-28",
+      "completed": "2026-07-28",
+      "test_summary": "pytest 2063 passed / omni_openclaw 覆盖率 86.63% (>=80%) / vitest 1283 passed / cargo test 126 passed / tsc --noEmit 0 errors / vite build ✓",
+      "subtasks": [
+        {
+          "id": "M32.1",
+          "name": "LLM 路由与降级（aicg.py AicgPipeline.chat，L1 主路径失败或 nsfw=True 时自动降级 L4）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.2",
+          "name": "ComfyUI 文生图（generate_image，默认工作流 KSampler+EmptyLatentImage+CLIPTextEncode+SaveImage，支持自定义 workflow）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.3",
+          "name": "IndexTTS2 语音合成（text_to_speech，依次尝试 /tts 与 / 端点，支持 output_path 文件写入或 base64 返回）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.4",
+          "name": "工具注册与 handler（openclaw_chat / openclaw_generate_image / openclaw_text_to_speech，参数校验与 JSON 返回）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.5",
+          "name": "TDD 测试（test_aicg.py 30 测试：L1/L4 路由、nsfw 降级、ComfyUI prompt 提交、TTS 音频解析/base64/文件写入/端点回退）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.6",
+          "name": "真实可用性验证与修复（cluster health URL 修正为 /v1/models，test_tools.py fixture 修复，openclaw_health/chat/cluster_health 真实调用通过）",
+          "status": "completed"
+        }
+      ],
+      "notes": "M32 完成 omni_openclaw AICG 四层流水线，并于提交前执行真实可用性验证：openclaw_health 返回正确网关配置；openclaw_chat 真实调用 L1（qwen3.6-uncensored）成功返回内容；openclaw_cluster_health 修复健康检查 URL 后 gateway/L1/L4/ComfyUI/TTS 均正常，仅 embedding 端点 502（基础设施问题）。M28 微信发送改为经 wechat-bridge :9095 /wechat 投递 Alertmanager 告警：AI-Omni 插件侧 HTTP 调用与 payload 构造正确，wechat-bridge 服务可达，但实际微信投递被 OpenClaw agent 标记为 delivery suppressed（NO_REPLY），属 OpenClaw/bridge 基础设施行为，不在 AI-Omni 代码修复范围内。修复内容：client.py 新增 _wechat_backend 与 send_wechat_message Alertmanager 包装；tools.py / manifest.json 移除 openclaw_poll_wechat；cluster.py 对 OpenAI 兼容端点使用 /v1/models 作为探针。全量回归：pytest 2063 passed，omni_openclaw 覆盖率 86.63% ≥80%；vitest 1283 passed；cargo test 126 passed；tsc --noEmit 0 errors；vite build ✓。Phase 4『多模态感知』随 M32 完成而关闭，current_phase 推进至 5『办公自动化增强』。"
     }
   ],
   "constraints": {

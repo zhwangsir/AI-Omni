@@ -1,0 +1,31 @@
+{
+  "name": "omni_openclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw 智能通信网关插件：微信收发、多模态模型、智能家居、集群巡检、AICG 流水线",
+  "author": "AI-Omni",
+  "permissions": ["network", "tools.register"],
+  "platforms": ["macos", "linux"],
+  "dependencies": {"omni_sdk": ">=0.1.0"},
+  "events": {
+    "publishes": ["openclaw.message_received", "openclaw.health_changed"],
+    "subscribes": []
+  },
+  "tools": [
+    "openclaw_health",
+    "openclaw_send_wechat",
+    "openclaw_vision_chat",
+    "openclaw_audio_chat",
+    "openclaw_video_chat",
+    "openclaw_control_light",
+    "openclaw_control_fan",
+    "openclaw_control_air_purifier",
+    "openclaw_speaker_voice_on",
+    "openclaw_speaker_voice_off",
+    "openclaw_speaker_say",
+    "openclaw_cluster_health",
+    "openclaw_device_lookup",
+    "openclaw_chat",
+    "openclaw_generate_image",
+    "openclaw_text_to_speech"
+  ]
+}
