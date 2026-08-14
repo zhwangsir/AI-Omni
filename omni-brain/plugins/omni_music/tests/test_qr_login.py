@@ -91,6 +91,22 @@ class TestFakeQRLoginFlow:
         assert source.fake_cookies_save_count == save_count_before
 
 
+class TestStartSession:
+    def test_start_session_sets_started_at(self) -> None:
+        """start_session() 公共接口设置 _started_at 为当前 monotonic 时刻（float）。
+
+        替代 cli.py 直接写私有属性的运行时注入：跨 CLI 子进程重建 flow 时
+        经此公共方法重置超时起点。
+        """
+        flow = FakeQRLoginFlow(source=FakeMusicSource(), store=FakeCookieStore())
+        assert flow._started_at is None
+        before = time.monotonic()
+        flow.start_session()
+        after = time.monotonic()
+        assert isinstance(flow._started_at, float)
+        assert before <= flow._started_at <= after
+
+
 class TestQRLoginFlowRunUntilDone:
     def test_run_until_confirmed(self) -> None:
         """run_until_done 自动轮询到 confirmed，返回最终状态。"""

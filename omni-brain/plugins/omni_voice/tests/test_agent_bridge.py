@@ -113,6 +113,91 @@ class TestLiteLLMBridge:
             bridge.chat("hi")
 
 
+class TestThinkBlockStripping:
+    """reasoning 模型（Nemotron Reasoning 等）<think> 推理块剥离。
+
+    真机事故（2026-07-30）：voice-status.json 的 reply 写入了整段英文推理过程，
+    TTS 把推理逐字朗读。剥离必须发生在 _parse_response 层，保证下游
+    （对话历史 / TTS / 状态文件）全部干净。
+    """
+
+    def _chat_with_body(self, monkeypatch, body: bytes) -> str:
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda req, timeout=None: _FakeResponse(body),
+        )
+        bridge = LiteLLMBridge("http://x/v1", "m")
+        return bridge.chat("你好")
+
+    def test_closed_think_block_is_stripped(self, monkeypatch):
+        reply = self._chat_with_body(
+            monkeypatch, _ok_body("<think>让我想想怎么回答</think>你好，我在。")
+        )
+        assert reply == "你好，我在。"
+
+    def test_real_world_jul30_leak_is_stripped(self, monkeypatch):
+        """7月30日状态文件真实泄漏案例：大段英文推理 + </think> + 中文回复。"""
+        leaked = (
+            "We need to respond as Sherry, concise natural, under 50 Chinese characters. "
+            "Let's count characters...\n</think>\n你好我在等你指令呢有什么想要帮忙的吗"
+        )
+        reply = self._chat_with_body(monkeypatch, _ok_body(leaked))
+        assert reply == "你好我在等你指令呢有什么想要帮忙的吗"
+
+    def test_multiple_think_blocks_all_stripped(self, monkeypatch):
+        reply = self._chat_with_body(
+            monkeypatch, _ok_body("<think>第一段</think>中间<think>第二段</think>结尾")
+        )
+        assert reply == "中间结尾"
+
+    def test_unclosed_think_block_discards_to_end(self, monkeypatch):
+        """未闭合 <think>（流式截断/模型异常）：保守全部丢弃，不读推理内容。"""
+        reply = self._chat_with_body(monkeypatch, _ok_body("前言<think>推理到一半被截断"))
+        assert reply == "前言"
+
+    def test_no_think_block_returned_as_is(self, monkeypatch):
+        reply = self._chat_with_body(monkeypatch, _ok_body("普通回复没有推理块"))
+        assert reply == "普通回复没有推理块"
+
+    def test_only_think_block_returns_empty(self, monkeypatch):
+        reply = self._chat_with_body(monkeypatch, _ok_body("<think>只有推理没有回复</think>"))
+        assert reply == ""
+
+    def test_orphan_close_then_unclosed_open_terminates(self, monkeypatch):
+        """回归（2026-08-14 review 发现）：孤立 ``</think>`` 在前 + 未闭合 ``<think>``
+        在后的组合形态曾让剥离循环每轮拼接使字符串无限增长、线程永久挂起。"""
+        reply = self._chat_with_body(monkeypatch, _ok_body("推理</think>正式回复<think>截断"))
+        assert reply == "正式回复"
+
+    def test_none_content_stays_none(self, monkeypatch):
+        """tool_call 场景 content 为 None：不触发剥离，保持 None。"""
+        body = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "id": "c1",
+                                    "function": {"name": "t", "arguments": "{}"},
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        monkeypatch.setattr(
+            "urllib.request.urlopen",
+            lambda req, timeout=None: _FakeResponse(body),
+        )
+        bridge = LiteLLMBridge("http://x/v1", "m")
+        resp = bridge.chat_messages([{"role": "user", "content": "hi"}])
+        assert resp.content is None
+        assert resp.is_tool_call
+
+
 class TestFakeAgentBridge:
     def test_reply_queue(self):
         agent = FakeAgentBridge(replies=["答一", "答二"])

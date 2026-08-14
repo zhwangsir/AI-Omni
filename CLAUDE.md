@@ -1,6 +1,6 @@
 # CLAUDE.md · AI-Omni 代码规范
 
-> 本文件为在本仓库工作的 AI 编码 Agent 提供代码规范。协作流程见 [AGENTS.md](AGENTS.md)，环境搭建见 [PROJECT_INIT.md](PROJECT_INIT.md)。
+> 本文件为在本仓库工作的 AI 编码 Agent 提供代码规范。协作流程见 [AGENTS.md](AGENTS.md)，项目概览与环境见 [README.md](README.md)。
 
 ## 项目速览
 
@@ -41,7 +41,7 @@ def register(ctx) -> None:
 
 ### 2.1 OmniPlugin 基类（M15 起）
 
-> M15 起 `omni_sdk` 包正式化（见 [transformation-plan-m12-m26.md](docs/specs/transformation-plan-m12-m26.md) §M15）。新插件必须继承 `OmniPlugin`；现有 `register(ctx)` 契约（见上文 §二）通过 `omni_sdk/compat.py` 适配层继续兼容，迁移期间不破坏既有功能。协作流程层面的规范见 [AGENTS.md](AGENTS.md) §七。
+> M15 起 `omni_sdk` 包正式化（见 [transformation-plan-m12-m26.md](docs/specs/transformation-plan-m12-m26.md) §M15）。新插件必须继承 `OmniPlugin`；现有 `register(ctx)` 契约（见上文 §二）通过 `omni_sdk/compat.py` 适配层继续兼容，迁移期间不破坏既有功能。
 
 #### 基类骨架
 
@@ -62,7 +62,7 @@ class VoicePlugin(OmniPlugin):
     async def on_load(self, ctx: PluginContext) -> None:
         """加载时构造 VoicePipeline，订阅事件，注册工具。"""
         self.ctx = ctx
-        # VoicePipeline 的 ASR/TTS/LLM 经 OpenClaw 网关接入（见 §三）
+        # VoicePipeline 的 ASR/TTS/LLM 经独立端点接入（见 §三）
         self.pipeline = VoicePipeline(config=ctx.config)
         await ctx.event_bus.subscribe("system.volume_changed", self._on_volume_changed)
         await self.register_tools(ctx)  # 基类默认实现，读取 manifest.tools
@@ -113,7 +113,7 @@ class VoicePlugin(OmniPlugin):
 }
 ```
 
-字段语义与权限清单详见 [AGENTS.md](AGENTS.md) §7.2 / §7.4。
+字段语义与权限清单详见 [transformation-plan-m12-m26.md](docs/specs/transformation-plan-m12-m26.md) §M15。
 
 #### 与现有 register(ctx) 的兼容说明
 
@@ -141,7 +141,7 @@ python3 -m omni_sdk create omni_music
 
 ## 三、重型依赖：惰性导入且可缺省
 
-> 2026-07-28 起 ASR/TTS/LLM 统一经 OpenClaw 网关（`:18789`）OpenAI 兼容端点接入（[AGENTS.md](AGENTS.md) §四），本地不再加载推理模型；VAD 为纯 Python 能量检测（`backends/energy_vad.py`），零第三方依赖。历史重型推理依赖（`torch` / `faster-whisper` / `silero-vad` / `kokoro` / `openwakeword` / `llama-cpp-python`）已移除。
+> 2026-07-28 起 ASR/TTS/LLM 经独立 OpenAI 兼容端点接入：LLM → Workstation Nemotron vLLM（`:8000/v1`）、ASR → Workstation faster-whisper（`:9210/v1`）、TTS → Workstation IndexTTS2（`:9200`）。本地不再加载推理模型；VAD 为纯 Python 能量检测（`backends/energy_vad.py`），零第三方依赖。历史重型推理依赖（`torch` / `faster-whisper` / `silero-vad` / `kokoro` / `openwakeword` / `llama-cpp-python`）已移除。
 
 `sounddevice` 等重型 / 硬件相关依赖（以及未来新增的任何重型 / 硬件依赖）：
 

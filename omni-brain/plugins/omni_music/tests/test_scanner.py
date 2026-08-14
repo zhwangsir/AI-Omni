@@ -20,6 +20,32 @@ from omni_music.library.scanner import LibraryScanner, _extract_bytes
 
 
 # ---------------------------------------------------------------------------
+# DB 连接自动清理（M32.23）
+# ---------------------------------------------------------------------------
+# 本模块测试创建的 sqlite3 连接此前从未 close——文件型 DB 在 GC 回收未关闭
+# 连接时抛 ResourceWarning（全量回归中可观测到）。所有测试一律经
+# ``_tracked_db`` 创建 DB 并登记到 ``_OPEN_DBS``，autouse fixture 在每个
+# 测试结束后统一 close + 清空注册表，无论测试通过还是失败都不泄漏。
+_OPEN_DBS: list[MusicLibraryDB] = []
+
+
+@pytest.fixture(autouse=True)
+def _close_tracked_dbs():
+    """每个测试结束后关闭并清空本测试登记的所有 DB 连接。"""
+    yield
+    for db in _OPEN_DBS:
+        db.close()
+    _OPEN_DBS.clear()
+
+
+def _tracked_db(db_path: str | Path = ":memory:") -> MusicLibraryDB:
+    """创建 MusicLibraryDB 并登记到清理注册表（测试结束自动 close）。"""
+    db = MusicLibraryDB(db_path)
+    _OPEN_DBS.append(db)
+    return db
+
+
+# ---------------------------------------------------------------------------
 # Fake 依赖
 # ---------------------------------------------------------------------------
 
@@ -94,7 +120,7 @@ def _make_scanner(
     mr = FakeMetadataReader(metadata or {})
     ce = FakeCoverExtractor(covers)
     fst = FakeFileStat(stats or {})
-    db = MusicLibraryDB(db_path)
+    db = _tracked_db(db_path)
     db.init_schema()
     scanner = LibraryScanner(
         root_dir="/fake/music",
@@ -105,6 +131,38 @@ def _make_scanner(
         db=db,
     )
     return scanner, fs, mr, ce, fst, db
+
+
+# ===========================================================================
+# M32.23：DB 连接清理回归
+# ===========================================================================
+class TestDbConnectionCleanup:
+    """测试用 DB 连接必须全部纳入自动清理，杜绝 sqlite3 连接泄漏。
+
+    回归背景：本模块曾创建约 20 个 MusicLibraryDB 而无一 close，
+    全量回归中触发 ``ResourceWarning: unclosed database``。
+    """
+
+    def test_tracked_db_registers_for_cleanup(self, tmp_path: Path) -> None:
+        """_tracked_db 创建的实例必须登记到清理注册表。"""
+        db = _tracked_db(tmp_path / "lib.db")
+        assert any(d is db for d in _OPEN_DBS)
+
+    def test_registry_drained_between_tests(self, tmp_path: Path) -> None:
+        """autouse fixture 须在每个测试后排空注册表（即 close 已执行）。
+
+        若清理失效，此前任何测试登记的 DB 都会残留到本测试起始时刻。
+        """
+        assert _OPEN_DBS == []
+        db = _tracked_db(tmp_path / "lib.db")
+        db.init_schema()
+        assert _OPEN_DBS  # 本测试登记一条，fixture 收尾时关闭并清空
+
+    def test_make_scanner_db_is_tracked(self) -> None:
+        """_make_scanner 内部创建的 DB 同样纳入清理注册表。"""
+        scanner, *_rest, db = _make_scanner(["/fake/music/a.mp3"])
+        assert any(d is db for d in _OPEN_DBS)
+        assert scanner._db is db
 
 
 # ===========================================================================
@@ -229,7 +287,7 @@ class TestIncrementalScan:
         mr = FakeMetadataReader({"/fake/music/a.mp3": {"title": "A", "duration": 100}})
         ce = FakeCoverExtractor()
         fst = FakeFileStat({"/fake/music/a.mp3": (1000.0, 100)})
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(
             root_dir="/fake/music",
@@ -252,7 +310,7 @@ class TestIncrementalScan:
 class TestDefaultDeps:
     def test_default_metadata_reader_uses_mutagen(self, tmp_path: Path) -> None:
         """未注入 metadata_reader 时用内置 mutagen reader（惰性导入）。"""
-        scanner = LibraryScanner(root_dir="/fake/music", db=MusicLibraryDB(tmp_path / "lib.db"))
+        scanner = LibraryScanner(root_dir="/fake/music", db=_tracked_db(tmp_path / "lib.db"))
         # 内置 reader 应可调用；mutagen 缺失时返回空元数据（不抛错）
         meta = scanner._read_metadata("/nonexistent.mp3")
         assert "title" in meta
@@ -260,14 +318,14 @@ class TestDefaultDeps:
 
     def test_default_cover_extractor(self, tmp_path: Path) -> None:
         """未注入 cover_extractor 时用内置提取器（mutagen 缺失返回 None）。"""
-        scanner = LibraryScanner(root_dir="/fake/music", db=MusicLibraryDB(tmp_path / "lib.db"))
+        scanner = LibraryScanner(root_dir="/fake/music", db=_tracked_db(tmp_path / "lib.db"))
         cover = scanner._extract_cover("/nonexistent.mp3", "sid", 1000.0)
         # 文件不存在 / mutagen 缺失均返回 None（不抛错）
         assert cover is None
 
     def test_default_file_stat(self, tmp_path: Path) -> None:
         """未注入 file_stat 时用 os.stat。"""
-        scanner = LibraryScanner(root_dir="/fake/music", db=MusicLibraryDB(tmp_path / "lib.db"))
+        scanner = LibraryScanner(root_dir="/fake/music", db=_tracked_db(tmp_path / "lib.db"))
         # 用本测试文件验证 os.stat 路径
         mtime, size = scanner._stat_file(__file__)
         assert mtime > 0
@@ -327,7 +385,7 @@ class TestEdgeCases:
                     raise RuntimeError("读取失败")
                 return {"title": "B", "duration": 100}
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(
             root_dir="/fake/music",
@@ -363,7 +421,7 @@ class TestScanDir:
         (tmp_path / "notes.md").write_text("x")
         (tmp_path / "data.json").write_text("{}")
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(root_dir=str(tmp_path), db=db)
         files = scanner._scan_dir(str(tmp_path))
@@ -386,7 +444,7 @@ class TestScanDir:
         (sub / "deep.m4a").write_bytes(b"")
         (sub / "lyrics.lrc").write_text("[00:00.00]x")
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(root_dir=str(tmp_path), db=db)
         files = scanner._scan_dir(str(tmp_path))
@@ -398,7 +456,7 @@ class TestScanDir:
 
     def test_scan_dir_nonexistent_root_returns_empty(self, tmp_path: Path) -> None:
         """_scan_dir 对不存在的目录返回空列表（不抛错）。"""
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(root_dir=str(tmp_path), db=db)
         files = scanner._scan_dir(str(tmp_path / "does" / "not" / "exist"))
@@ -410,7 +468,7 @@ class TestScanDir:
         (tmp_path / "B.Flac").write_bytes(b"")
         (tmp_path / "C.OGG").write_bytes(b"")
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(root_dir=str(tmp_path), db=db)
         files = scanner._scan_dir(str(tmp_path))
@@ -433,7 +491,7 @@ class TestReadMetadataWithMutagen:
 
     @staticmethod
     def _scanner(tmp_path: Path) -> LibraryScanner:
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         return LibraryScanner(root_dir="/fake", db=db)
 
@@ -591,7 +649,7 @@ class TestExtractCover:
 
     @staticmethod
     def _scanner(tmp_path: Path, covers_dir: Path) -> LibraryScanner:
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         return LibraryScanner(root_dir="/fake", db=db, covers_dir=covers_dir)
 
@@ -791,7 +849,7 @@ class TestStatFile:
 
     def test_returns_zero_tuple_for_nonexistent_path(self, tmp_path: Path) -> None:
         """os.stat 对不存在的路径抛 FileNotFoundError（OSError 子类），降级返回 (0.0, 0)。"""
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(root_dir="/fake", db=db)
         mtime, size = scanner._stat_file(str(tmp_path / "nonexistent_file"))
@@ -802,7 +860,7 @@ class TestStatFile:
         """存在的文件返回真实 mtime / size。"""
         f = tmp_path / "real.mp3"
         f.write_bytes(b"hello world")
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(root_dir="/fake", db=db)
         mtime, size = scanner._stat_file(str(f))
@@ -875,7 +933,7 @@ class TestScanWithDefaultDeps:
         (tmp_path / "track1.mp3").write_bytes(b"")
         (tmp_path / "track2.flac").write_bytes(b"")
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(
             root_dir=str(tmp_path),
@@ -920,7 +978,7 @@ class TestScanWithDefaultDeps:
 
         (tmp_path / "song.mp3").write_bytes(b"")
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         covers_dir = tmp_path / "covers"
         scanner = LibraryScanner(
@@ -946,7 +1004,7 @@ class TestScanWithDefaultDeps:
         (tmp_path / "readme.txt").write_text("x")
         (tmp_path / "cover.jpg").write_bytes(b"")
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(
             root_dir=str(tmp_path),
@@ -965,7 +1023,7 @@ class TestScanWithDefaultDeps:
         f = tmp_path / "a.mp3"
         f.write_bytes(b"original")
 
-        db = MusicLibraryDB(tmp_path / "lib.db")
+        db = _tracked_db(tmp_path / "lib.db")
         db.init_schema()
         scanner = LibraryScanner(
             root_dir=str(tmp_path),

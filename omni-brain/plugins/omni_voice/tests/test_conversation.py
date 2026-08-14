@@ -363,3 +363,219 @@ class TestConversationAgentToolCalling:
         assert reply == "纯文本回复"
         _, tools = inner.calls[0]
         assert tools is None
+
+
+class _RawToolCallBridge(AgentBridge):
+    """首轮返回原生 arguments 字符串的 tool_call，次轮回放 tool 消息后返回文本。"""
+
+    def __init__(self, tool_name: str, raw_arguments: str, final_reply: str = "最终回复"):
+        self._tool_name = tool_name
+        self._raw_arguments = raw_arguments
+        self._final_reply = final_reply
+        self.call_count = 0
+        self.tool_messages: list[dict] = []
+
+    def chat(self, text: str) -> str:
+        return self._final_reply
+
+    def chat_messages(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> AgentResponse:
+        self.call_count += 1
+        if self.call_count == 1:
+            return AgentResponse(
+                content=None,
+                tool_calls=[
+                    ToolCallRequest(
+                        id="c1", name=self._tool_name, arguments=self._raw_arguments
+                    )
+                ],
+            )
+        self.tool_messages = [m for m in messages if m.get("role") == "tool"]
+        return AgentResponse(content=self._final_reply)
+
+
+def _make_echo_registry() -> ToolRegistry:
+    """构造含一个 echo 工具的注册表。"""
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="echo",
+            description="回声",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda kw: "echo ok",
+        )
+    )
+    return registry
+
+
+class TestConversationAgentProperties:
+    """system_prompt / tools 只读属性。"""
+
+    def test_system_prompt_property(self):
+        agent = ConversationAgent(FakeAgentBridge(), system_prompt="你是雪莉")
+        assert agent.system_prompt == "你是雪莉"
+
+    def test_tools_property(self):
+        registry = _make_echo_registry()
+        agent = ConversationAgent(FakeAgentBridge(), system_prompt="s", tools=registry)
+        assert agent.tools is registry
+        agent_no_tools = ConversationAgent(FakeAgentBridge(), system_prompt="s")
+        assert agent_no_tools.tools is None
+
+
+class TestExecuteToolErrorPaths:
+    """_execute_tool 各错误分支（M32.26 覆盖率提升）。"""
+
+    def test_execute_tool_without_tools_registry(self):
+        """LLM 请求工具但未注册工具表 → 回传"没有可用的工具"错误串。"""
+        inner = _RawToolCallBridge("any_tool", "{}")
+        agent = ConversationAgent(inner, system_prompt="s")  # tools=None
+        reply = agent.chat("调用工具")
+        assert reply == "最终回复"
+        assert len(inner.tool_messages) == 1
+        assert inner.tool_messages[0]["content"] == "错误：没有可用的工具（请求了 any_tool）"
+
+    def test_execute_tool_invalid_json_arguments(self):
+        """arguments 非合法 JSON → 回传参数解析失败错误串，不调用工具。"""
+        executed: list[dict] = []
+        registry = ToolRegistry()
+        registry.register(
+            Tool(
+                name="echo",
+                description="回声",
+                parameters={"type": "object", "properties": {}},
+                handler=lambda kw: executed.append(kw) or "echo ok",
+            )
+        )
+        inner = _RawToolCallBridge("echo", "{not valid json")
+        agent = ConversationAgent(inner, system_prompt="s", tools=registry)
+        reply = agent.chat("调用工具")
+        assert reply == "最终回复"
+        assert inner.tool_messages[0]["content"] == "错误：工具 echo 参数 JSON 解析失败"
+        assert executed == []
+
+    def test_dispatch_non_tool_error_returns_error_string(self):
+        """工具 dispatch 抛非 ToolError 异常 → 回传"工具执行失败"错误串。
+
+        用返回不可 JSON 序列化对象（object()）的 handler：Tool.execute 的
+        json.dumps 抛 TypeError（非 ToolError），走 except Exception 分支。
+        """
+        registry = ToolRegistry()
+        registry.register(
+            Tool(
+                name="bad_result",
+                description="返回坏结果",
+                parameters={"type": "object", "properties": {}},
+                handler=lambda kw: object(),
+            )
+        )
+        tool_ends: list[tuple[str, str]] = []
+        inner = _RawToolCallBridge("bad_result", "{}")
+        agent = ConversationAgent(
+            inner, system_prompt="s", tools=registry,
+            on_tool_end=lambda name, result: tool_ends.append((name, result)),
+        )
+        reply = agent.chat("调用工具")
+        assert reply == "最终回复"
+        content = inner.tool_messages[0]["content"]
+        assert content.startswith("错误：工具执行失败 - ")
+        assert tool_ends == [("bad_result", content)]
+
+    def test_on_tool_start_exception_swallowed(self):
+        """on_tool_start 回调抛异常被吞，工具照常执行。"""
+        executed: list[dict] = []
+        registry = ToolRegistry()
+        registry.register(
+            Tool(
+                name="echo",
+                description="回声",
+                parameters={"type": "object", "properties": {}},
+                handler=lambda kw: executed.append(kw) or "echo ok",
+            )
+        )
+
+        def _boom_start(name: str, args: dict) -> None:
+            raise RuntimeError("UI 回调故障")
+
+        inner = _RawToolCallBridge("echo", "{}")
+        agent = ConversationAgent(
+            inner, system_prompt="s", tools=registry, on_tool_start=_boom_start
+        )
+        reply = agent.chat("调用工具")
+        assert reply == "最终回复"
+        assert executed == [{}]
+        assert inner.tool_messages[0]["content"] == "echo ok"
+
+    def test_on_tool_end_exception_swallowed(self):
+        """on_tool_end 回调抛异常被吞，工具结果照常回传 LLM。"""
+        registry = _make_echo_registry()
+
+        def _boom_end(name: str, result: str) -> None:
+            raise RuntimeError("UI 回调故障")
+
+        inner = _RawToolCallBridge("echo", "{}")
+        agent = ConversationAgent(
+            inner, system_prompt="s", tools=registry, on_tool_end=_boom_end
+        )
+        reply = agent.chat("调用工具")
+        assert reply == "最终回复"
+        assert inner.tool_messages[0]["content"] == "echo ok"
+
+
+class TestCallBridgeFallback:
+    """_call_bridge 回退路径：bridge 无 chat_messages / 旧签名 TypeError。"""
+
+    def test_bridge_without_chat_messages_falls_back_to_chat(self):
+        """bridge 无 chat_messages 属性 → 回退 chat(最后一条用户文本)。"""
+
+        class _ChatOnlyBridge:
+            """不实现 chat_messages 的旧式 bridge（鸭子类型）。"""
+
+            def __init__(self) -> None:
+                self.texts: list[str] = []
+
+            def chat(self, text: str) -> str:
+                self.texts.append(text)
+                return "旧桥回复"
+
+        inner = _ChatOnlyBridge()
+        agent = ConversationAgent(inner, system_prompt="sys")
+        assert agent.chat("第一条") == "旧桥回复"
+        assert agent.chat("第二条") == "旧桥回复"
+        # 回退路径发送的是最后一条 str content 的 user 消息
+        assert inner.texts == ["第一条", "第二条"]
+
+    def test_chat_messages_type_error_falls_back_to_chat(self):
+        """chat_messages 旧签名（无 tools 参数）→ TypeError 后回退 chat(text)。"""
+
+        class _OldSignatureBridge(AgentBridge):
+            def __init__(self) -> None:
+                self.texts: list[str] = []
+
+            def chat(self, text: str) -> str:
+                self.texts.append(text)
+                return "旧签名回复"
+
+            def chat_messages(self, messages: list[dict]) -> AgentResponse:
+                # 无 tools 关键字参数：带 tools 调用时 Python 抛 TypeError
+                return AgentResponse(content="不应到达")
+
+        inner = _OldSignatureBridge()
+        registry = _make_echo_registry()  # tools_schema 非 None，确保带 tools 调用
+        agent = ConversationAgent(inner, system_prompt="sys", tools=registry)
+        assert agent.chat("你好") == "旧签名回复"
+        assert agent.chat("再说一次") == "旧签名回复"
+        assert inner.texts == ["你好", "再说一次"]
+
+
+class TestDropOldestTurnEdge:
+    """_drop_oldest_turn 边界：历史无 user 消息时整体清空。"""
+
+    def test_drop_oldest_turn_without_user_message_clears_history(self):
+        agent = ConversationAgent(FakeAgentBridge(), system_prompt="sys")
+        agent._history.append({"role": "assistant", "content": "孤儿回复"})
+        agent._drop_oldest_turn()
+        assert agent.history == []

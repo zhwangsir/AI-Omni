@@ -1,4 +1,4 @@
-"""omni_weather backends 测试：Open-Meteo / Geocoding / IP 定位。
+"""omni_weather backends 测试：Open-Meteo / Geocoding / IP 定位 / Fake 后端。
 
 全部 fake HTTP（monkeypatch httpx.get 返回预制 JSON），不访问真实网络。
 覆盖成功路径、HTTP 失败、JSON 解析错误、httpx 缺失降级。
@@ -6,10 +6,16 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
 
+from omni_weather.backends.fake_open_meteo import (
+    FakeGeocodingBackend,
+    FakeIpLocationBackend,
+    FakeOpenMeteoBackend,
+)
 from omni_weather.backends.geocoding import GeocodingBackend
 from omni_weather.backends.ip_location import IpLocationBackend
 from omni_weather.backends.open_meteo import OpenMeteoBackend
@@ -260,6 +266,35 @@ class TestGeocodingBackend:
         assert result["ok"] is False
         assert result["error"]["code"] == "E_HTTP_FAILED"
 
+    def test_search_httpx_unavailable(self, monkeypatch):
+        """httpx 未安装时降级为 E_BACKEND_UNAVAILABLE。"""
+        monkeypatch.setitem(sys.modules, "httpx", None)
+        b = GeocodingBackend()
+        result = b.search("北京")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "httpx" in result["error"]["message"]
+
+    def test_search_json_decode_error(self, monkeypatch):
+        """响应 JSON 解析失败映射为 E_PARSE_FAILED。"""
+
+        class _BadResp:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> Any:
+                raise ValueError("bad json")
+
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _BadResp())
+        b = GeocodingBackend()
+        result = b.search("北京")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_PARSE_FAILED"
+
 
 # ---------------------------------------------------------------------------
 # IpLocationBackend
@@ -325,3 +360,122 @@ class TestIpLocationBackend:
         assert result["lat"] == 30.0
         assert result["city"] is None
         assert result["country"] is None
+
+    def test_locate_httpx_unavailable(self, monkeypatch):
+        """httpx 未安装时降级为 E_BACKEND_UNAVAILABLE。"""
+        monkeypatch.setitem(sys.modules, "httpx", None)
+        b = IpLocationBackend()
+        result = b.locate()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "httpx" in result["error"]["message"]
+
+    def test_locate_json_decode_error(self, monkeypatch):
+        """响应 JSON 解析失败映射为 E_PARSE_FAILED。"""
+
+        class _BadResp:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> Any:
+                raise ValueError("bad json")
+
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _BadResp())
+        b = IpLocationBackend()
+        result = b.locate()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_PARSE_FAILED"
+
+
+# ---------------------------------------------------------------------------
+# FakeOpenMeteoBackend
+# ---------------------------------------------------------------------------
+class TestFakeOpenMeteoBackend:
+    def test_get_weather_invalid_lat_string(self):
+        """lat 为非数字字符串（ValueError）→ E_INVALID_ARG。"""
+        b = FakeOpenMeteoBackend()
+        result = b.get_weather(lat="abc", lon=116.4)  # type: ignore[arg-type]
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_ARG"
+        assert "abc" in result["error"]["message"]
+
+    def test_get_weather_none_lat(self):
+        """lat 为 None（TypeError）→ E_INVALID_ARG。"""
+        b = FakeOpenMeteoBackend()
+        result = b.get_weather(lat=None, lon=116.4)  # type: ignore[arg-type]
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_ARG"
+
+    def test_get_weather_success_echoes_coords_and_city(self):
+        """成功路径：回显归一化 lat/lon 与 city，hourly 为 24 条。"""
+        b = FakeOpenMeteoBackend()
+        result = b.get_weather(lat=39.9042, lon=116.4074, city="北京")
+        assert result["ok"] is True
+        assert result["fake"] is True
+        assert result["lat"] == 39.9042
+        assert result["lon"] == 116.4074
+        assert result["city"] == "北京"
+        assert len(result["hourly"]) == 24
+
+
+# ---------------------------------------------------------------------------
+# FakeGeocodingBackend
+# ---------------------------------------------------------------------------
+class TestFakeGeocodingBackend:
+    def test_search_empty_keyword(self):
+        """空白关键词 → E_INVALID_ARG。"""
+        b = FakeGeocodingBackend()
+        for bad in ("", "   "):
+            result = b.search(bad)
+            assert result["ok"] is False
+            assert result["error"]["code"] == "E_INVALID_ARG"
+
+    def test_search_non_string_keyword(self):
+        """非字符串关键词 → E_INVALID_ARG。"""
+        b = FakeGeocodingBackend()
+        result = b.search(None)  # type: ignore[arg-type]
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_ARG"
+
+    def test_search_unknown_city(self):
+        """未收录城市 → E_CITY_NOT_FOUND。"""
+        b = FakeGeocodingBackend()
+        result = b.search("亚特兰蒂斯")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_CITY_NOT_FOUND"
+        assert "亚特兰蒂斯" in result["error"]["message"]
+
+    def test_search_known_city(self):
+        """收录城市 → ok + 标准化结果。"""
+        b = FakeGeocodingBackend()
+        result = b.search("北京")
+        assert result["ok"] is True
+        assert result["count"] == 1
+        assert result["results"][0]["name"] == "北京"
+        assert result["results"][0]["lat"] == 39.9042
+
+
+# ---------------------------------------------------------------------------
+# FakeIpLocationBackend
+# ---------------------------------------------------------------------------
+class TestFakeIpLocationBackend:
+    def test_locate_success_default(self):
+        """默认返回预设 Beijing 位置。"""
+        b = FakeIpLocationBackend()
+        result = b.locate()
+        assert result["ok"] is True
+        assert result["lat"] == 39.9042
+        assert result["lon"] == 116.4074
+        assert result["city"] == "Beijing"
+        assert result["fake"] is True
+
+    def test_locate_failure_when_should_fail(self):
+        """should_fail=True 时返回 E_IP_LOCATION_FAILED。"""
+        b = FakeIpLocationBackend(should_fail=True)
+        result = b.locate()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_IP_LOCATION_FAILED"

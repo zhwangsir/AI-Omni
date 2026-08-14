@@ -1,0 +1,54 @@
+{
+  "name": "omni_office",
+  "version": "0.1.0",
+  "description": "办公自动化：文档版本管理 / 邮件收发与自动回复 / 日程冲突检测与提醒 / 会议准备跨模块工作流 / 移动端日程桥接（schedule_*）",
+  "author": "AI-Omni",
+  "permissions": [
+    "network",
+    "fs.read:~/.ai-omni/office",
+    "fs.write:~/.ai-omni/office",
+    "tools.register"
+  ],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "office.doc_created",
+      "office.doc_updated",
+      "office.email_sent",
+      "office.email_auto_replied",
+      "office.event_created",
+      "office.event_reminder",
+      "office.workflow_completed"
+    ],
+    "subscribes": []
+  },
+  "tools": [
+    "office_doc_create",
+    "office_doc_update",
+    "office_doc_get",
+    "office_doc_list",
+    "office_doc_versions",
+    "office_doc_rollback",
+    "office_email_send",
+    "office_email_inbox",
+    "office_email_mark_read",
+    "office_email_template_save",
+    "office_email_template_list",
+    "office_email_auto_reply",
+    "office_email_process_inbox",
+    "office_event_create",
+    "office_event_list",
+    "office_event_reminders",
+    "office_event_check_conflicts",
+    "office_meeting_prep",
+    "office_email_to_event",
+    "office_status",
+    "schedule_list_events",
+    "schedule_create_event",
+    "schedule_update_event",
+    "schedule_delete_event"
+  ]
+}

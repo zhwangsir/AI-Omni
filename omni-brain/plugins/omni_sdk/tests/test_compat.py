@@ -22,6 +22,7 @@ from omni_sdk.compat import (
     LegacyPluginAdapter,
     RegisterCompatPlugin,
     _LegacyCtxAdapter,
+    _LegacyEventBusAdapter,
     wrap_legacy_plugin,
 )
 from omni_sdk.context import PluginContext
@@ -630,3 +631,69 @@ class TestLifecycleHostIntegration:
         # 因此 on_load 期间注册的工具被 _plugin_tools 跟踪，unload 时正确注销
         assert "demo_status" not in tool_registry.list_tools()
         assert "demo_ping" not in tool_registry.list_tools()
+
+
+# ---------------------------------------------------------------------------
+# _LegacyEventBusAdapter：sync publish / subscribe / unsubscribe 桥接（M32.25）
+# ---------------------------------------------------------------------------
+class TestLegacyEventBusAdapter:
+    """_LegacyEventBusAdapter 把 async EventBus 桥接为 sync 接口（旧契约）。
+
+    两条 publish 路径都必须覆盖：
+    - 无运行中事件循环 → ``asyncio.run`` 同步执行至完成
+    - 有运行中事件循环 → ``loop.create_task`` 非阻塞调度
+    """
+
+    def test_publish_without_running_loop_uses_asyncio_run(self) -> None:
+        """同步上下文调用 publish：事件经 asyncio.run 执行完毕、同步送达。"""
+        bus = EventBus()
+        received: list[dict[str, Any]] = []
+        bus.subscribe("demo.event", lambda payload: received.append(payload))
+
+        adapter = _LegacyEventBusAdapter(bus)
+        # 当前线程无运行中事件循环：publish 返回时投递已完成
+        adapter.publish("demo.event", {"v": 1})
+        assert received == [{"v": 1}]
+
+    def test_publish_with_running_loop_uses_create_task(self) -> None:
+        """异步上下文调用 publish：走 create_task 调度，事件最终送达。"""
+
+        async def _main() -> list[dict[str, Any]]:
+            bus = EventBus()
+            received: list[dict[str, Any]] = []
+            bus.subscribe("demo.event", lambda payload: received.append(payload))
+
+            adapter = _LegacyEventBusAdapter(bus)
+            adapter.publish("demo.event", {"v": 2})
+            # create_task 为非阻塞调度：让出控制权使 task 得以执行
+            await asyncio.sleep(0)
+            return received
+
+        received = asyncio.run(_main())
+        assert received == [{"v": 2}]
+
+    def test_subscribe_delegates_to_bus(self) -> None:
+        """subscribe 委托底层 EventBus.subscribe：注册后事件可送达。"""
+        bus = EventBus()
+        adapter = _LegacyEventBusAdapter(bus)
+        received: list[dict[str, Any]] = []
+
+        sub_id = adapter.subscribe("demo.event", lambda payload: received.append(payload))
+        assert isinstance(sub_id, str) and sub_id
+        # 经底层 bus 直接发布，验证订阅确实注册到了 bus 上
+        asyncio.run(bus.publish("demo.event", {"v": 3}))
+        assert received == [{"v": 3}]
+
+    def test_unsubscribe_delegates_to_bus(self) -> None:
+        """unsubscribe 委托底层 EventBus.unsubscribe：返回值透传且取消生效。"""
+        bus = EventBus()
+        adapter = _LegacyEventBusAdapter(bus)
+        received: list[dict[str, Any]] = []
+        sub_id = adapter.subscribe("demo.event", lambda payload: received.append(payload))
+
+        assert adapter.unsubscribe(sub_id) is True
+        # 取消后事件不再送达
+        asyncio.run(bus.publish("demo.event", {"v": 4}))
+        assert received == []
+        # 重复取消：底层返回 False 被原样透传
+        assert adapter.unsubscribe(sub_id) is False

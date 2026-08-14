@@ -17,7 +17,14 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EMPTY_HOME_SUMMARY, EMPTY_SYSTEM_STATS, EMPTY_VOICE_STATUS, type VoiceStatus } from "../data/sources";
+import {
+  EMPTY_HOME_SUMMARY,
+  EMPTY_SYSTEM_STATS,
+  EMPTY_VOICE_STATUS,
+  type HomeSummary,
+  type SystemStats,
+  type VoiceStatus,
+} from "../data/sources";
 import type { Space } from "../space/createSpace";
 import { THEMES } from "../theme/themes";
 import { createHudStore, type HudStore } from "../store/hudStore";
@@ -38,14 +45,18 @@ class ResizeObserverStub {
 
 // ---- fake stores ---------------------------------------------------------
 
-function makeFakeStatusStore(initialVoice?: Partial<VoiceStatus>): {
+function makeFakeStatusStore(
+  initialVoice?: Partial<VoiceStatus>,
+  initial?: { home?: Partial<HomeSummary>; system?: Partial<SystemStats> },
+): {
   store: StatusStore;
   setVoice(patch: Partial<VoiceStatus>): void;
+  setChannels(patch: { home?: Partial<HomeSummary>; system?: Partial<SystemStats> }): void;
 } {
   let state: StatusState = {
     voice: { ...EMPTY_VOICE_STATUS, available: true, state: null, ...initialVoice },
-    home: EMPTY_HOME_SUMMARY,
-    system: EMPTY_SYSTEM_STATS,
+    home: { ...EMPTY_HOME_SUMMARY, ...initial?.home },
+    system: { ...EMPTY_SYSTEM_STATS, ...initial?.system },
     failures: { voice: 0, home: 0, system: 0 },
     running: true,
     paused: false,
@@ -64,6 +75,16 @@ function makeFakeStatusStore(initialVoice?: Partial<VoiceStatus>): {
     store,
     setVoice(patch): void {
       state = { ...state, voice: { ...state.voice, ...patch } };
+      act(() => {
+        for (const listener of [...listeners]) listener();
+      });
+    },
+    setChannels(patch): void {
+      state = {
+        ...state,
+        home: { ...state.home, ...patch.home },
+        system: { ...state.system, ...patch.system },
+      };
       act(() => {
         for (const listener of [...listeners]) listener();
       });
@@ -393,6 +414,137 @@ describe("WellZone 井心 caption 卡", () => {
       "well-caption",
       expect.objectContaining({ width: expect.any(Number) }),
     );
+  });
+
+  it("caption 卡展示 home/system 摘要（M32.29a）", () => {
+    const { store: status } = makeFakeStatusStore(
+      { available: true, state: "idle" },
+      {
+        home: { available: true, stats: { devices: 12, rooms: 3 }, demo: false },
+        system: {
+          available: true,
+          cpuPercent: 34,
+          memoryUsedBytes: 8 * 1024 ** 3,
+          memoryTotalBytes: 16 * 1024 ** 3,
+        },
+      },
+    );
+    const { store: theme } = makeFakeThemeStore();
+    const { registry } = makeFakeZoneRegistry();
+    render(
+      <WellZone
+        statusStore={status}
+        hudStore={hudStore}
+        themeStore={theme}
+        registry={registry}
+        spaceRef={NULL_SPACE_REF}
+      />,
+    );
+    fireEvent.pointerEnter(screen.getByTestId("well-zone"));
+    fireEvent.click(screen.getByTestId("well-center"));
+    const meta = screen.getByTestId("well-caption-meta");
+    expect(meta.textContent).toContain("家 12设备/3房间");
+    expect(meta.textContent).toContain("CPU 34%");
+    expect(meta.textContent).toContain("内存 50%");
+    expect(meta.textContent).not.toContain("演示");
+  });
+
+  it("demo 家庭数据标注「演示」（M32.29a）", () => {
+    const { store: status } = makeFakeStatusStore(undefined, {
+      home: { available: true, stats: { devices: 5, rooms: 2 }, demo: true },
+    });
+    const { store: theme } = makeFakeThemeStore();
+    const { registry } = makeFakeZoneRegistry();
+    render(
+      <WellZone
+        statusStore={status}
+        hudStore={hudStore}
+        themeStore={theme}
+        registry={registry}
+        spaceRef={NULL_SPACE_REF}
+      />,
+    );
+    fireEvent.pointerEnter(screen.getByTestId("well-zone"));
+    fireEvent.click(screen.getByTestId("well-center"));
+    const meta = screen.getByTestId("well-caption-meta");
+    expect(meta.textContent).toContain("家 5设备/2房间");
+    expect(meta.textContent).toContain("演示");
+  });
+
+  it("home/system 均不可用时省略 meta 行（M32.29a）", () => {
+    const { store: status } = makeFakeStatusStore({ available: true, state: "idle" });
+    const { store: theme } = makeFakeThemeStore();
+    const { registry } = makeFakeZoneRegistry();
+    render(
+      <WellZone
+        statusStore={status}
+        hudStore={hudStore}
+        themeStore={theme}
+        registry={registry}
+        spaceRef={NULL_SPACE_REF}
+      />,
+    );
+    fireEvent.pointerEnter(screen.getByTestId("well-zone"));
+    fireEvent.click(screen.getByTestId("well-center"));
+    expect(screen.getByTestId("well-caption-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("well-caption-meta")).toBeNull();
+  });
+
+  it("home.stats 为 null 时仅渲染 system 段（M32.29a）", () => {
+    const { store: status } = makeFakeStatusStore(undefined, {
+      home: { available: true, stats: null },
+      system: {
+        available: true,
+        cpuPercent: 12,
+        memoryUsedBytes: 4 * 1024 ** 3,
+        memoryTotalBytes: 16 * 1024 ** 3,
+      },
+    });
+    const { store: theme } = makeFakeThemeStore();
+    const { registry } = makeFakeZoneRegistry();
+    render(
+      <WellZone
+        statusStore={status}
+        hudStore={hudStore}
+        themeStore={theme}
+        registry={registry}
+        spaceRef={NULL_SPACE_REF}
+      />,
+    );
+    fireEvent.pointerEnter(screen.getByTestId("well-zone"));
+    fireEvent.click(screen.getByTestId("well-center"));
+    const meta = screen.getByTestId("well-caption-meta");
+    expect(meta.textContent).not.toContain("家");
+    expect(meta.textContent).toContain("CPU 12%");
+    expect(meta.textContent).toContain("内存 25%");
+  });
+
+  it("home/system 状态变化经 setChannels 推送后 meta 行联动更新（M32.29a）", () => {
+    const { store: status, setChannels } = makeFakeStatusStore(
+      { available: true, state: "idle" },
+      { system: { available: true, cpuPercent: 10, memoryUsedBytes: 0, memoryTotalBytes: 0 } },
+    );
+    const { store: theme } = makeFakeThemeStore();
+    const { registry } = makeFakeZoneRegistry();
+    render(
+      <WellZone
+        statusStore={status}
+        hudStore={hudStore}
+        themeStore={theme}
+        registry={registry}
+        spaceRef={NULL_SPACE_REF}
+      />,
+    );
+    fireEvent.pointerEnter(screen.getByTestId("well-zone"));
+    fireEvent.click(screen.getByTestId("well-center"));
+    expect(screen.getByTestId("well-caption-meta").textContent).toContain("CPU 10%");
+    setChannels({
+      home: { available: true, stats: { devices: 7, rooms: 2 }, demo: false },
+      system: { available: true, cpuPercent: 55, memoryUsedBytes: 0, memoryTotalBytes: 0 },
+    });
+    const meta = screen.getByTestId("well-caption-meta");
+    expect(meta.textContent).toContain("家 7设备/2房间");
+    expect(meta.textContent).toContain("CPU 55%");
   });
 });
 

@@ -65,6 +65,10 @@ class OpenAITTS(TTSBackend):
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                 return response.read()
         except urllib.error.HTTPError as exc:
-            raise VoiceBackendError(f"TTS 请求失败 HTTP {exc.code}（网关 {self.endpoint}）") from exc
+            code = exc.code
+            # M32.23：关闭异常持有的底层响应资源（Python 3.14 起未关闭触发
+            # ResourceWarning；真实运行时对应未释放的 socket 连接）。
+            exc.close()
+            raise VoiceBackendError(f"TTS 请求失败 HTTP {code}（网关 {self.endpoint}）") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise VoiceBackendError(f"TTS 网关不可达（{self.endpoint}）: {exc}") from exc

@@ -141,6 +141,30 @@ class TestKillProcess:
         assert len(received) == 1
         assert received[0]["pid"] == 1234
 
+    def test_kill_process_no_backend(self) -> None:
+        """后端缺失时 kill 返回 E_BACKEND_UNAVAILABLE。"""
+        plugin, ctx, _ = _setup_plugin(backend=None)
+        result = _call_tool(ctx, "system_kill_process", {"pid": 1234})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+
+    @pytest.mark.parametrize("bad_pid", [-3, 0, "abc", True])
+    def test_kill_process_invalid_pid(self, bad_pid: Any) -> None:
+        """pid 非正整数（含 bool/字符串/负数/0）时返回 E_INVALID_PARAM。"""
+        fake = FakeProcessBackend()
+        plugin, ctx, _ = _setup_plugin(fake)
+        result = _call_tool(ctx, "system_kill_process", {"pid": bad_pid})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAM"
+
+    def test_kill_process_backend_exception(self) -> None:
+        """后端抛异常时映射为 E_BACKEND_ERROR。"""
+        fake = FakeProcessBackend(raise_on_kill=True)
+        plugin, ctx, _ = _setup_plugin(fake)
+        result = _call_tool(ctx, "system_kill_process", {"pid": 1234})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_ERROR"
+
 
 class TestStartProcess:
     def test_start_process_success(self) -> None:
@@ -186,6 +210,31 @@ class TestStartProcess:
         result = _call_tool(ctx, "system_start_process", {"command": "Safari"})
         assert result["ok"] is False
         assert "error" in result
+
+    def test_start_process_no_backend(self) -> None:
+        """后端缺失时 start 返回 E_BACKEND_UNAVAILABLE。"""
+        plugin, ctx, _ = _setup_plugin(backend=None)
+        result = _call_tool(ctx, "system_start_process", {"command": "Safari"})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+
+    def test_start_process_start_failed(self) -> None:
+        """后端返回 started=False 时映射为 E_START_FAILED。"""
+
+        class _FailStartBackend:
+            def list_processes(self, limit: int = 20) -> list[dict[str, Any]]:
+                return []
+
+            def kill_process(self, pid: int) -> dict[str, Any]:
+                return {"pid": pid, "killed": False}
+
+            def start_process(self, command: str) -> dict[str, Any]:
+                return {"command": command, "started": False}
+
+        plugin, ctx, _ = _setup_plugin(_FailStartBackend())
+        result = _call_tool(ctx, "system_start_process", {"command": "Nope"})
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_START_FAILED"
 
 
 class TestBackendUnavailable:

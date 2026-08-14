@@ -1,7 +1,7 @@
 """omni_music 命令行入口：``python -m omni_music <子命令>``。
 
 CLI 是 tools 层的薄壳：解析参数 → 调用 tools → 打印 JSON → 映射退出码
-（ok:true → 0，ok:false → 1；参数解析错误由 argparse 以 2 退出）。
+（ok:true → 0，ok:false → 1；参数解析错误返回 E_INVALID_PARAMS JSON 并退出 1）。
 
 子命令：
 
@@ -35,9 +35,9 @@ library 子命令经 env ``AI_OMNI_MUSIC_DB`` 控制数据库路径（跨 CLI �
 
 from __future__ import annotations
 
-import argparse
 import json
-import time
+
+from omni_sdk.cli_utils import JsonErrorArgumentParser
 
 from . import tools
 
@@ -93,7 +93,7 @@ def _ensure_login_flow(rt: tools.Runtime, fake: bool, key: str) -> None:
 
         flow = QRLoginFlow(source=source, store=store)
     flow._key = key  # type: ignore[attr-defined]
-    flow._started_at = time.monotonic()  # type: ignore[attr-defined]
+    flow.start_session()
     rt.flow = flow
 
 
@@ -245,9 +245,9 @@ def _cmd_decrypt(args: argparse.Namespace) -> int:
     )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> JsonErrorArgumentParser:
     """构建 CLI 参数解析器。"""
-    parser = argparse.ArgumentParser(
+    parser = JsonErrorArgumentParser(
         prog="omni_music",
         description="音乐源接入：多源搜索/扫码登录/Cookie加密/播放控制",
     )

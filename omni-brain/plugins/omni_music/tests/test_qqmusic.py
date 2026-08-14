@@ -549,6 +549,93 @@ class TestLazyImportHttpxHappyPath:
         assert len(results) == 2
 
 
+# ---------------------------------------------------------------------------
+# close() / 上下文管理器（M32.24：自有客户端连接池释放）
+# ---------------------------------------------------------------------------
+
+
+def _make_closable_client_cls() -> type:
+    """构造带 close()/closed 标记的 fake httpx.Client 类（每测例独立类，隔离 instances）。"""
+
+    class _ClosableFakeClient:
+        """模拟 httpx.Client：接受 timeout/follow_redirects，记录 close 调用。"""
+
+        instances: list["_ClosableFakeClient"] = []
+
+        def __init__(
+            self, timeout: float | None = None, follow_redirects: bool = False
+        ) -> None:
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+            self.closed = False
+            type(self).instances.append(self)
+
+        def get(self, url, params=None, cookies=None) -> _FakeResponse:
+            return _FakeResponse(SEARCH_RESPONSE_OK)
+
+        def close(self) -> None:
+            self.closed = True
+
+    return _ClosableFakeClient
+
+
+def _install_fake_httpx(monkeypatch, client_cls: type) -> None:
+    """向 sys.modules 注入 fake httpx 模块（其 Client 为 client_cls）。"""
+    fake_mod = types.ModuleType("httpx")
+    fake_mod.Client = client_cls  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "httpx", fake_mod)
+
+
+class TestClose:
+    def test_close_closes_owned_client(self, monkeypatch) -> None:
+        """未注入 client 时惰性创建的 httpx.Client 为自有，close() 应关闭它。"""
+        client_cls = _make_closable_client_cls()
+        _install_fake_httpx(monkeypatch, client_cls)
+        src = QQMusicSource(http_client=None)
+        client = src._get_client()
+        src.close()
+        assert client.closed is True
+        # close 后内部引用清空
+        assert src._http_client is None
+
+    def test_close_does_not_close_injected_client(self) -> None:
+        """注入的外部 client 非自有，close() 不得调用其 close()（调用方管理生命周期）。"""
+        client = FakeHttpClient([])
+        # 给注入的 fake 加 close 追踪
+        close_calls: list[bool] = []
+        client.close = lambda: close_calls.append(True)  # type: ignore[attr-defined]
+        src = QQMusicSource(http_client=client)
+        src.close()
+        assert close_calls == []
+        # 注入的 client 引用保持不动
+        assert src._http_client is client
+
+    def test_close_idempotent_and_reusable(self, monkeypatch) -> None:
+        """close() 幂等（多次调用不报错）；close 后 _get_client() 可重新创建新 client。"""
+        client_cls = _make_closable_client_cls()
+        _install_fake_httpx(monkeypatch, client_cls)
+        src = QQMusicSource(http_client=None)
+        first = src._get_client()
+        src.close()
+        src.close()  # 第二次不报错
+        assert first.closed is True
+        # 重新创建：返回新实例且未关闭
+        second = src._get_client()
+        assert second is not first
+        assert isinstance(second, client_cls)
+        assert second.closed is False
+
+    def test_context_manager_closes(self, monkeypatch) -> None:
+        """with 语句退出时自动 close 自有客户端。"""
+        client_cls = _make_closable_client_cls()
+        _install_fake_httpx(monkeypatch, client_cls)
+        with QQMusicSource(http_client=None) as src:
+            client = src._get_client()
+            assert client.closed is False
+        assert client.closed is True
+        assert src._http_client is None
+
+
 class TestCustomBaseUrl:
     def test_custom_base_url_used_in_request(self) -> None:
         """自定义 base_url 拼接到请求 URL。"""

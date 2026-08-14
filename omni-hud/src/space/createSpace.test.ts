@@ -218,6 +218,8 @@ function makeDeps(overrides?: Partial<SpaceDeps>): {
   deps: SpaceDeps;
   fake: FakeThree;
   pumpFrames: (n: number) => void;
+  /** M34.3：不泵帧直接推进时钟（模拟挂起时长跨度）。 */
+  advanceNow: (ms: number) => void;
 } {
   const fake = makeFakeThree();
   let now = 0;
@@ -245,6 +247,9 @@ function makeDeps(overrides?: Partial<SpaceDeps>): {
         now += 16.7;
         cb(now);
       }
+    },
+    advanceNow: (ms: number) => {
+      now += ms;
     },
   };
 }
@@ -295,10 +300,10 @@ describe("createSpace 初始化契约", () => {
     expect(fake.__spy.scene.fog).not.toBeNull();
     const palette = particleUniforms(fake).uPalette!.value as Float32Array;
     expect(palette.length).toBe(18);
-    // 默认主题第一槽为显影琥珀 accent #c9a86a
-    expect(palette[0]).toBeCloseTo(0xc9 / 255, 3);
-    expect(palette[1]).toBeCloseTo(0xa8 / 255, 3);
-    expect(palette[2]).toBeCloseTo(0x6a / 255, 3);
+    // 默认主题第一槽为显影琥珀 accent #e8c97a（提升亮度以在桌面端可见）
+    expect(palette[0]).toBeCloseTo(0xe8 / 255, 3);
+    expect(palette[1]).toBeCloseTo(0xc9 / 255, 3);
+    expect(palette[2]).toBeCloseTo(0x7a / 255, 3);
     space.dispose();
   });
 });
@@ -1105,6 +1110,162 @@ describe("createSpace M21.4 节奏电影镜头（setCinemaMode）", () => {
     const { deps } = makeDeps();
     const space = createSpace(deps, document.createElement("div"));
     expect(() => space.setCinemaMode("extreme" as never)).toThrow(RangeError);
+    space.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M34.3 渲染循环挂起/唤醒：idle 完全透明（dim 收束 0）且非 shelf 场景时
+// 挂起渲染循环（GPU/CPU 归零）；视觉变更入口唤醒，setPointer 不唤醒。
+// ---------------------------------------------------------------------------
+
+/** idle 待命参数（dim=0 完全透明 + 自由流场），与 fieldState.IDLE_PARAMS 同语义。 */
+function idleFieldParams() {
+  return {
+    dimFactor: 0,
+    brightnessLift: 0,
+    attractor: null,
+    orbit: null,
+    flowline: null,
+    ripple: null,
+    dormant: false,
+    particleShape: null,
+    pulseStrength: 0,
+    helixRotSpeed: 0,
+    flickerIntensity: 0,
+    flickerSpeed: 0,
+    glowBoost: 0,
+    sphereScale: 1,
+  } as const;
+}
+
+/** 唤醒态参数（dim=1 可见）。 */
+function awakeFieldParams() {
+  return { ...idleFieldParams(), dimFactor: 1 };
+}
+
+describe("createSpace M34.3 渲染循环挂起/唤醒", () => {
+  it("未经 setField 的裸 space 保持常渲染（既有契约回归锁）", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    pumpFrames(30);
+    const renders = fake.__spy.renderer.render.mock.calls.length;
+    expect(renders).toBeGreaterThanOrEqual(30);
+    space.dispose();
+  });
+
+  it("setField(idle dim=0) 收束后循环挂起：render 次数封顶", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    pumpFrames(5);
+    space.setField(idleFieldParams()); // dim 目标 0；cur 从 0 起本就在 0
+    pumpFrames(3); // 渲染全透明帧后挂起
+    const settled = fake.__spy.renderer.render.mock.calls.length;
+    pumpFrames(60); // 挂起后泵帧无新渲染
+    expect(fake.__spy.renderer.render.mock.calls.length).toBe(settled);
+    space.dispose();
+  });
+
+  it("从可见态淡出到 idle：dim 缓动收束期间不挂起，收束后才挂起", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    space.setField(awakeFieldParams());
+    pumpFrames(10);
+    space.setField(idleFieldParams());
+    pumpFrames(3); // dim 从 1 缓动中（远未收束）→ 不挂起
+    const during = fake.__spy.renderer.render.mock.calls.length;
+    pumpFrames(5);
+    expect(fake.__spy.renderer.render.mock.calls.length).toBeGreaterThan(during);
+    pumpFrames(150); // ~2.5s：dim 收束到 ≤0.005 → 挂起
+    const settled = fake.__spy.renderer.render.mock.calls.length;
+    pumpFrames(60);
+    expect(fake.__spy.renderer.render.mock.calls.length).toBe(settled);
+    space.dispose();
+  });
+
+  it("挂起后 setField(dim=1) 唤醒：渲染恢复且 dim 淡入推进", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    space.setField(idleFieldParams());
+    pumpFrames(5);
+    const settled = fake.__spy.renderer.render.mock.calls.length;
+    pumpFrames(30);
+    expect(fake.__spy.renderer.render.mock.calls.length).toBe(settled); // 已挂起
+    space.setField(awakeFieldParams());
+    pumpFrames(10);
+    expect(fake.__spy.renderer.render.mock.calls.length).toBeGreaterThan(settled);
+    expect(particleUniforms(fake).uFieldDim!.value as number).toBeGreaterThan(0);
+    space.dispose();
+  });
+
+  it("挂起后 addRipple 触发事件驱动单帧（渲染一帧后再挂起，不恢复连续循环）", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    space.setField(idleFieldParams());
+    pumpFrames(5);
+    const settled = fake.__spy.renderer.render.mock.calls.length;
+    expect(space.addRipple({ x: 0, y: 0, durationMs: 1200 })).toBe(true);
+    pumpFrames(10);
+    const after = fake.__spy.renderer.render.mock.calls.length;
+    // 唤醒渲染 ≥1 帧（波纹 uniform 写入）；dim 仍 0 → 帧尾重新挂起
+    expect(after).toBeGreaterThan(settled);
+    pumpFrames(30);
+    expect(fake.__spy.renderer.render.mock.calls.length).toBe(after);
+    space.dispose();
+  });
+
+  it("setPointer 不唤醒挂起的循环（idle 透明态指针高频移动零渲染开销）", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    space.setField(idleFieldParams());
+    pumpFrames(5);
+    const settled = fake.__spy.renderer.render.mock.calls.length;
+    space.setPointer(0.8, 0.5);
+    pumpFrames(30);
+    expect(fake.__spy.renderer.render.mock.calls.length).toBe(settled);
+    space.dispose();
+  });
+
+  it("setShelfActive(true) 保活：dim=0 也持续渲染（卡片不受 dim 影响）", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    space.setField(idleFieldParams());
+    space.setShelfActive(true);
+    pumpFrames(30);
+    const renders = fake.__spy.renderer.render.mock.calls.length;
+    expect(renders).toBeGreaterThanOrEqual(30); // 保活：每帧都渲染
+    // 关掉 shelf → 回到 idle 挂起
+    space.setShelfActive(false);
+    pumpFrames(5);
+    const settled = fake.__spy.renderer.render.mock.calls.length;
+    pumpFrames(30);
+    expect(fake.__spy.renderer.render.mock.calls.length).toBe(settled);
+    space.dispose();
+  });
+
+  it("挂起恢复后 dt 从 1/60 重启（lastNow 重置，流场时钟不跳变）", () => {
+    const { deps, fake, pumpFrames, advanceNow } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"));
+    space.setField(idleFieldParams());
+    pumpFrames(5); // 挂起
+    const t0 = particleUniforms(fake).uFlowTime!.value as number;
+    advanceNow(5 * 60_000); // 模拟挂起 5 分钟
+    space.setField(awakeFieldParams()); // 唤醒
+    pumpFrames(1);
+    const t1 = particleUniforms(fake).uFlowTime!.value as number;
+    // dt 重置为 1/60：flowTime 增量 = dt × flowScale(基线 1) ≈ 0.0167，
+    // 若未重置则 clamp 到 0.1（或更大），差异 6 倍可分辨
+    expect(t1 - t0).toBeLessThan(0.05);
+    space.dispose();
+  });
+
+  it("reduced-motion 静态路径不受挂起逻辑影响（仍只渲一帧）", () => {
+    const { deps, fake, pumpFrames } = makeDeps();
+    const space = createSpace(deps, document.createElement("div"), { reducedMotion: true });
+    expect(fake.__spy.renderer.render).toHaveBeenCalledTimes(1);
+    space.setField(idleFieldParams());
+    pumpFrames(20);
+    expect(fake.__spy.renderer.render).toHaveBeenCalledTimes(1);
     space.dispose();
   });
 });

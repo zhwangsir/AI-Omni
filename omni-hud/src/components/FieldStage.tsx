@@ -95,7 +95,7 @@ export function FieldStage({ spaceRef, statusStore, hudStore }: FieldStageProps)
       if (!space) return;
       // 状态滞后：null（未识别/不可用）且上一个状态为活跃形态时，保持形态不释放，
       // 防止 Rust 侧发送未收录状态字符串或短暂 IPC 抖动导致粒子误消散。
-      // 显式 "idle" 字符串正常切换到待机球体（不会释放为自由流）。
+      // 显式 "idle" 字符串正常切换到待机态（M32.31：完全透明 + 释放为自由流，不占视野）。
       let params = resolveFieldState(voiceState, reduced);
       const prev = lastVoiceStateRef.current;
       const lastHadActiveShape = prev !== null && prev !== undefined && prev !== "idle";

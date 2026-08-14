@@ -146,6 +146,11 @@ export type QualityListener = (tier: QualityTierName) => void;
 export interface QualityMonitor {
   /** 喂一帧时间戳（ms）。reduced-motion / 手动覆盖 / wallpaper 期间忽略。 */
   recordFrame(now: number): void;
+  /**
+   * M34.3：清空 fps 滚动窗口与升档计时——渲染循环挂起恢复后调用，
+   * 避免挂起时长混进 span 被误判为低帧率而错误降档。
+   */
+  resetFrameWindow(): void;
   /** 有效档位 = reduced-motion ? low : (wallpaper ? wallpaper : (override ?? auto))。 */
   getTier(): QualityTierName;
   getTierSpec(): QualityTierSpec;
@@ -235,6 +240,10 @@ export function createQualityMonitor(options: QualityMonitorOptions = {}): Quali
       } else {
         upSince = null; // 中间帧率打断升档计时，重新累计
       }
+    },
+
+    resetFrameWindow(): void {
+      resetTiming();
     },
 
     getTier(): QualityTierName {

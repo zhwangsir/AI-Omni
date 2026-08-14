@@ -82,7 +82,7 @@ class TestHomeRefresh:
         rt.config = HomeConfig(ha_token="")
         data = _parse(tools.home_refresh(fake=False))
         assert data["ok"] is False
-        assert "token" in data["error"].lower()
+        assert "token" in data["error"]["message"].lower()
 
     def test_refresh_failure_maps_error(self):
         from omni_home.errors import HomeConnectionError
@@ -91,7 +91,7 @@ class TestHomeRefresh:
         rt.client = FakeHomeAssistantClient(fail_with=HomeConnectionError("连不上"))
         data = _parse(tools.home_refresh())
         assert data["ok"] is False
-        assert "连不上" in data["error"]
+        assert "连不上" in data["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -158,23 +158,23 @@ class TestHomeControl:
     def test_unrecognized_command(self):
         data = _parse(tools.home_control(" blah blah", fake=True))
         assert data["ok"] is False
-        assert "无法识别" in data["error"]
+        assert "无法识别" in data["error"]["message"]
 
     def test_query_action_redirects(self):
         data = _parse(tools.home_control("客厅灯开着吗", fake=True))
         assert data["ok"] is False
-        assert "home_query" in data["error"]
+        assert "home_query" in data["error"]["message"]
 
     def test_target_not_found(self):
         data = _parse(tools.home_control("打开阁楼灯", fake=True))
         assert data["ok"] is False
-        assert "找不到" in data["error"]
+        assert "找不到" in data["error"]["message"]
 
     def test_ambiguous_targets(self):
         data = _parse(tools.home_control("打开灯", fake=True))
         assert data["ok"] is False
-        assert "歧义" in data["error"] or "多个" in data["error"]
-        assert "candidates" in data["error"] or "客厅" in data["error"]
+        assert "歧义" in data["error"]["message"] or "多个" in data["error"]["message"]
+        assert "candidates" in data["error"]["message"] or "客厅" in data["error"]["message"]
 
     def test_default_room_fallback(self):
         rt = tools._runtime
@@ -203,7 +203,7 @@ class TestHomeControl:
         rt.client = FakeHomeAssistantClient(fail_with=HomeConnectionError("断网"))
         data = _parse(tools.home_control("打开客厅灯"))
         assert data["ok"] is False
-        assert "断网" in data["error"]
+        assert "断网" in data["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ class TestHomeQuery:
     def test_control_action_redirects(self):
         data = _parse(tools.home_query("打开客厅灯", fake=True))
         assert data["ok"] is False
-        assert "home_control" in data["error"]
+        assert "home_control" in data["error"]["message"]
 
     def test_unrecognized_query(self):
         data = _parse(tools.home_query(" blah blah", fake=True))
@@ -305,7 +305,7 @@ class TestHomeConfig:
     def test_set_unknown_key(self):
         data = _parse(tools.home_config(action="set", key="no_such_key", value="x"))
         assert data["ok"] is False
-        assert "不支持" in data["error"]
+        assert "不支持" in data["error"]["message"]
 
     def test_set_invalid_value(self):
         data = _parse(tools.home_config(action="set", key="connect_timeout", value="-5"))

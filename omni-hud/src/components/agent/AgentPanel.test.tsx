@@ -31,14 +31,14 @@ import { AgentPanel } from "./AgentPanel";
 /** 状态 → 期望的指示器颜色（与 AgentPanel.tsx STATE_INDICATOR_COLOR 对齐）。
  * 浏览器把 hex 规范化为 rgb()，断言用 rgb 形式以匹配 style.backgroundColor 读取值。 */
 const EXPECTED_COLORS: Record<VoicePipelineState, string> = {
-  idle: "rgb(131, 135, 143)",
-  wake_listening: "rgb(91, 141, 239)",
-  follow_up_listening: "rgb(91, 141, 239)",
-  recording: "rgb(176, 74, 58)",
-  transcribing: "rgb(139, 147, 167)",
-  thinking: "rgb(155, 107, 214)",
-  tool_using: "rgb(217, 154, 78)",
-  speaking: "rgb(111, 181, 138)",
+  idle: "rgb(90, 107, 90)",
+  wake_listening: "rgb(127, 176, 138)",
+  follow_up_listening: "rgb(127, 176, 138)",
+  recording: "rgb(176, 122, 114)",
+  transcribing: "rgb(125, 151, 184)",
+  thinking: "rgb(154, 138, 176)",
+  tool_using: "rgb(181, 160, 125)",
+  speaking: "rgb(127, 176, 138)",
 };
 
 function makeVoice(overrides: Partial<VoiceStatus> = {}): VoiceStatus {
@@ -202,7 +202,7 @@ describe("AgentPanel 状态指示器颜色", () => {
     expect(indicator.style.backgroundColor).toBe(EXPECTED_COLORS.idle);
   });
 
-  it("wake_listening 状态指示器为蓝色", () => {
+  it("wake_listening 状态指示器为绿色", () => {
     const status = makeFakeStatusStore({ state: "wake_listening" });
     const agent = makeFakeAgentStore();
     render(<AgentPanel statusStore={status.store} agentStore={agent.store} />);

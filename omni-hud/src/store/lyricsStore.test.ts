@@ -596,6 +596,49 @@ describe("lyricsStore clear", () => {
 });
 
 // ---------------------------------------------------------------------------
+// debugSetLyrics（E2E / 演示注入）
+// ---------------------------------------------------------------------------
+describe("lyricsStore debugSetLyrics", () => {
+  it("直接注入歌词结果并清错误，绕过 IPC", async () => {
+    // 先制造一个错误态（非 Tauri invoker 返回 E_NOT_TAURI）
+    const store = createLyricsStore();
+    await store.fetchLyrics("s1");
+    expect(store.getState().error).not.toBeNull();
+
+    store.debugSetLyrics({
+      lyrics: "[00:01.00]夜航星\n[00:05.00]穿越暗房",
+      source: "local_file",
+      parsed: [
+        { time_s: 1, text: "夜航星", translation: null, words: null },
+        { time_s: 5, text: "穿越暗房", translation: null, words: null },
+      ],
+    });
+    const state = store.getState();
+    expect(state.error).toBeNull();
+    expect(state.isLoading).toBe(false);
+    expect(state.currentLyrics?.source).toBe("local_file");
+    expect(state.currentLyrics?.parsed).toHaveLength(2);
+    // 注入后 refreshCurrentLine 本地二分可正常定位
+    store.refreshCurrentLine(5.2);
+    expect(store.getState().currentIndex).toBe(1);
+  });
+
+  it("注入 null 等价清空（保留 offsetS）", () => {
+    const store = createLyricsStore();
+    store.debugSetLyrics({
+      lyrics: "x",
+      source: "online",
+      parsed: [{ time_s: 0, text: "x", translation: null, words: null }],
+    });
+    store.debugSetLyrics(null);
+    const state = store.getState();
+    expect(state.currentLyrics).toBeNull();
+    expect(state.currentIndex).toBe(-1);
+    expect(state.currentWordIndex).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 非 Tauri 默认 invoker
 // ---------------------------------------------------------------------------
 describe("lyricsStore 默认 invoker（非 Tauri）", () => {

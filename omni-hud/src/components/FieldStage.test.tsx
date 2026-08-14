@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe("FieldStage 引擎参数注入", () => {
-  it("挂载即推送当前 voice.state 的场参数（null → idle 等价 dim=0.8）", () => {
+  it("挂载即推送当前 voice.state 的场参数（null → idle 等价：dim=0 完全透明 + 释放形态）", () => {
     const { store } = makeFakeStatusStore(null);
     const { space, setField } = makeFakeSpace();
     const spaceRef = makeSpaceRef(space);
@@ -91,7 +91,8 @@ describe("FieldStage 引擎参数注入", () => {
     );
     expect(setField).toHaveBeenCalledTimes(1);
     const params = setField.mock.calls[0]![0];
-    expect(params.dimFactor).toBe(0.8);
+    expect(params.dimFactor).toBe(0);
+    expect(params.particleShape).toBeNull();
     expect(params.attractor).toBeNull();
     expect(params.orbit).toBeNull();
     expect(params.flowline).toBeNull();

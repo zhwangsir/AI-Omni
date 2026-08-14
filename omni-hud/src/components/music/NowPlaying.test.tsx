@@ -49,6 +49,7 @@ function makeFakeStore(initial: Partial<MusicState> = {}): {
     error: null,
     loginQr: null,
     loginStatus: "idle",
+    onlineResults: null,
     ...initial,
   };
   const listeners = new Set<() => void>();

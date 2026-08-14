@@ -26,6 +26,7 @@ from omni_sdk.plugin import OmniPlugin
 from omni_sdk.registry import ToolRegistry
 
 from omni_lyrics import LyricsPlugin, register
+from omni_lyrics import tools as lyrics_tools
 
 
 LYRICS_DIR = Path(__file__).resolve().parent.parent
@@ -135,6 +136,70 @@ class TestLyricsPluginBackwardCompat:
         result = tool["handler_func"]({"offset_s": 0.0})
         data = json.loads(result)
         assert data["ok"] is True
+
+
+class TestLyricsPluginEventSubscriptions:
+    """on_load 订阅 music.* 事件自动启停歌词同步（__init__.py 事件回调分支）。"""
+
+    @pytest.fixture(autouse=True)
+    def _reset_tools_runtime(self):
+        """每个测试前后重置 tools._runtime，避免跨测试状态污染。"""
+        lyrics_tools._reset_runtime()
+        yield
+        lyrics_tools._reset_runtime()
+
+    def _load(self) -> PluginContext:
+        """加载插件并返回注入的 PluginContext（含真实 EventBus）。"""
+        plugin = LyricsPlugin()
+        ctx = _make_plugin_context()
+        asyncio.run(plugin.on_load(ctx))
+        return ctx
+
+    def test_music_started_starts_sync(self) -> None:
+        """music.started 携带 track_id 时启动歌词同步。"""
+        ctx = self._load()
+        asyncio.run(ctx.event_bus.publish("music.started", {"track_id": "s1"}))
+        assert lyrics_tools._runtime.sync_active is True
+        assert lyrics_tools._runtime.current_song_id == "s1"
+
+    def test_music_started_without_track_id_ignored(self) -> None:
+        """music.started 缺少 track_id 时不启动同步。"""
+        ctx = self._load()
+        asyncio.run(ctx.event_bus.publish("music.started", {}))
+        assert lyrics_tools._runtime.sync_active is False
+        assert lyrics_tools._runtime.current_song_id is None
+
+    def test_music_paused_keeps_sync_state(self) -> None:
+        """music.paused 不改变同步状态（保持当前行显示）。"""
+        ctx = self._load()
+        asyncio.run(ctx.event_bus.publish("music.started", {"track_id": "s1"}))
+        asyncio.run(ctx.event_bus.publish("music.paused", {}))
+        assert lyrics_tools._runtime.sync_active is True
+        assert lyrics_tools._runtime.current_song_id == "s1"
+
+    def test_music_stopped_stops_sync(self) -> None:
+        """music.stopped 停止歌词同步并清除当前歌曲。"""
+        ctx = self._load()
+        asyncio.run(ctx.event_bus.publish("music.started", {"track_id": "s1"}))
+        asyncio.run(ctx.event_bus.publish("music.stopped", {}))
+        assert lyrics_tools._runtime.sync_active is False
+        assert lyrics_tools._runtime.current_song_id is None
+
+    def test_track_changed_switches_sync(self) -> None:
+        """music.track_changed 携带 track_id 时切换同步到新曲目。"""
+        ctx = self._load()
+        asyncio.run(ctx.event_bus.publish("music.started", {"track_id": "s1"}))
+        asyncio.run(ctx.event_bus.publish("music.track_changed", {"track_id": "s2"}))
+        assert lyrics_tools._runtime.sync_active is True
+        assert lyrics_tools._runtime.current_song_id == "s2"
+
+    def test_track_changed_without_track_id_keeps_state(self) -> None:
+        """music.track_changed 缺少 track_id 时保持原同步状态。"""
+        ctx = self._load()
+        asyncio.run(ctx.event_bus.publish("music.started", {"track_id": "s1"}))
+        asyncio.run(ctx.event_bus.publish("music.track_changed", {}))
+        assert lyrics_tools._runtime.sync_active is True
+        assert lyrics_tools._runtime.current_song_id == "s1"
 
 
 class TestLyricsManifest:

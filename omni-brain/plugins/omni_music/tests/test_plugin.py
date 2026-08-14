@@ -128,6 +128,33 @@ class TestMusicPluginOnLoad:
         asyncio.run(plugin.on_unload())
 
 
+class TestVolumeChangedSubscription:
+    """on_load 订阅 system.volume_changed 事件并折算播放增益。"""
+
+    def test_volume_changed_adjusts_gain(self) -> None:
+        """volume>1 按百分制折算；volume≤1 直接作为增益；非数值忽略。"""
+        from omni_music import tools
+
+        tools._reset_runtime()
+        plugin = MusicPlugin()
+        ctx = _make_plugin_context()
+        asyncio.run(plugin.on_load(ctx))
+        try:
+            # 百分制音量：50 → 0.5
+            asyncio.run(ctx.event_bus.publish("system.volume_changed", {"volume": 50}))
+            assert tools._runtime.volume_gain == pytest.approx(0.5)
+
+            # 小数音量：0.8 直接作为增益
+            asyncio.run(ctx.event_bus.publish("system.volume_changed", {"volume": 0.8}))
+            assert tools._runtime.volume_gain == pytest.approx(0.8)
+
+            # 非数值 volume：忽略，增益不变
+            asyncio.run(ctx.event_bus.publish("system.volume_changed", {"volume": "loud"}))
+            assert tools._runtime.volume_gain == pytest.approx(0.8)
+        finally:
+            tools._reset_runtime()
+
+
 class TestMusicPluginBackwardCompat:
     def test_register_legacy_ctx_still_works(self) -> None:
         """旧式 register(ctx) 入口仍可直接调用（注册全部 20 工具）。"""

@@ -118,9 +118,9 @@ class TestFakeMusicSourceGetLyrics:
     def test_get_lyrics_no_lyrics_returns_none(self) -> None:
         """歌曲没有歌词时返回 None。"""
         fake = FakeMusicSource()
-        first_without_lyrics = next((s for s in fake.songs if not s.lyrics), None)
-        if first_without_lyrics is None:
-            pytest.skip("FakeMusicSource 内置歌曲全部带歌词，跳过无歌词路径")
+        # M32.23：next 不带默认值——fake 内置数据一旦丢失无歌词歌曲，
+        # StopIteration 让测试立刻失败（回归信号），而非 pytest.skip 静默跳过。
+        first_without_lyrics = next(s for s in fake.songs if not s.lyrics)
         lyrics = fake.get_lyrics(first_without_lyrics.id)
         assert lyrics is None
 

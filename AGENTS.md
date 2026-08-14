@@ -1,213 +1,238 @@
-# AGENTS.md · AI-Omni Agent 协作规范
+# AGENTS.md — 集群操作记忆与决策记录
 
-> 本文件约束所有参与 AI-Omni 开发的 Agent（主 Agent 与子 Agent）。代码风格细则见 [CLAUDE.md](CLAUDE.md)，环境搭建见 [PROJECT_INIT.md](PROJECT_INIT.md)。
-
-## 一、子 Agent 团队工作模式
-
-AI-Omni 采用**主 Agent 编排 + 子 Agent 执行**的团队模式：
-
-1. **每个任务派发独立 subagent**。主 Agent 负责拆解任务、下发上下文、验收结果；具体实现（编码、测试、文档）由独立 subagent 完成。subagent 之间不共享工作区状态，所需上下文由主 Agent 在派发时一次性给足。
-2. **两阶段 review**：
-   - **阶段一 · 自验测试**：执行 subagent 在交付前必须自跑相关测试（`python3 -m pytest`，前端启用后含 `vitest run` 与 build），全部通过方可提交结果；交付报告中必须附测试输出摘要。
-   - **阶段二 · reviewer 审计**：由独立的 reviewer subagent 对产出做审计——核对需求覆盖度、代码规范（[CLAUDE.md](CLAUDE.md)）、测试真实有效性（非空断言、非自我实现）、以及对既有功能的回归影响。审计不通过则退回执行 subagent 修复。
-3. **禁止自审自批**：写代码的 subagent 不得兼任自己产出的 reviewer；reviewer 只审不改，发现问题退回而非代改。
-
-## 二、里程碑工作流
-
-每个里程碑 `M{N}`（含子任务 `M{N}.1`、`M{N}.2`……）必须按以下流程推进，**五件产出缺一不可**：
-
-| # | 产出 | 要求 |
-|---|------|------|
-| 1 | **代码实现** | 符合 [CLAUDE.md](CLAUDE.md) 规范；只新增 `omni_*` 插件与本仓库代码，不改 WeBrain 核心 |
-| 2 | **TDD 测试** | 测试先行（先写失败测试再实现）；覆盖率 ≥ 80%（`pyproject.toml` `fail_under = 80`） |
-| 3 | **全量回归** | `python3 -m pytest` 全绿；前端启用后追加 `vitest run` 与 `build` 成功；记录实际输出 |
-| 4 | **STATE.json 更新** | 新增 / 更新 `M{N}` 条目及全部子任务 `M{N}.1`、`M{N}.2`……，状态机：`pending → in_progress → completed` |
-| 5 | **TEST_LOG.md 记录** | 按时间顺序追加条目：**含关键代码片段与真实测试结果输出**（命令 + 通过/失败数字 + 覆盖率），禁止只写"测试通过"一句话 |
-
-里程碑关闭条件：五件产出齐备 + reviewer 审计通过。任一缺失，里程碑不得标记 `completed`。
-
-## 三、TDD 纪律
-
-1. **测试先行**：先写会失败的测试（red），再写最小实现使其通过（green），然后重构（refactor）。没有失败过的测试不算数。
-2. **覆盖率 ≥ 80%**：`python3 -m pytest --cov=omni-brain/plugins/<plugin>` 低于 80% 视为里程碑未完成。
-3. **测试独立性**：单元测试一律使用 fake 后端 / fake 依赖注入，**不得依赖音频硬件、GPU、真实模型文件、内网推理节点**；重型依赖缺失时测试也必须全绿（见 [CLAUDE.md](CLAUDE.md) 惰性导入约定）。
-4. **断言真实**：禁止空测试、恒真断言、复制实现逻辑的镜像断言；reviewer 审计时重点核查。
-5. **回归优先**：任何 bug 修复必须先补一条能复现该 bug 的失败测试，再修实现。
-
-## 四、项目隔离纪律
-
-> **历史背景**：WeBrain / Hermes 已弃用（见 `/Users/wangzhenyu/Desktop/ALLProject/.设备说明.md` §3.21），由 OpenClaw 网关（4 MacStudio + 4 MacMini :18789）替代。本节原 WeBrain/Hermes 引用已迁移至 OpenClaw。
-
-1. **AI-Omni 与 OpenClaw 保持独立模块边界**。AI-Omni 通过 OpenClaw 网关（`ai.openclaw.gateway` launchd 服务，:18789）接入推理能力，不做源码级侵入；不直接调用已弃用的 WeBrain/Hermes 接口。
-2. **OpenClaw 网关与其他项目代码不修改**。OpenClaw gateway 为集群共享资产，AI-Omni 任务中一律不改；发现 OpenClaw 缺陷时在本仓库记录并绕开，或提请用户在 OpenClaw 侧单独处理。
-3. **只新增 `omni_*` 插件**。AI-Omni 侧的新能力统一落在 `omni-brain/plugins/omni_*/`，经 `register(ctx)` 挂载；其余复用资产（QieZiOS / flipped / LUVU / AIHub）同样只读复用、封装接入，不 fork、不重写。
-4. **共用基础设施但不耦合**。OpenClaw 网关、EXO 集群、ComfyUI、NAS 等基础设施为共享资源，AI-Omni 以配置（endpoint / 凭据引用）方式消费；禁止把基础设施的地址、密钥硬编码进代码，禁止跨仓库 import。
-
-## 五、提交规范
-
-1. **不主动提交**：用户不明确要求时，**不执行 `git commit` / `git push`**；任务完成即停在工作区，向用户报告变更清单。
-2. **Conventional Commits**：用户要求提交时，使用 Conventional Commits 格式——`feat:` / `fix:` / `docs:` / `test:` / `refactor:` / `chore:`，必要时带 scope（如 `feat(omni_voice): ...`）；提交信息用中文或英文均可，说明"为什么"而非罗列"改了什么"。
-3. **提交前核对**：不提交密钥、`.env`、模型权重等大文件；不夹带与本任务无关的变更；提交前先全量回归。
+> **目的**：避免 AI 助手反复犯同样的错误，每次会话必须先读本文件
+> **维护者**：设备管家（AI Assistant）
+> **最后更新**：2026-08-05 23:50（更新 workstation GPU 分配：移除 Nemotron vLLM，GPU3 改为 FlashTalk/OpenTalking；收敛 ComfyUI-LB 后端）
+> **读取规则**：每次会话开始时必须完整阅读本文件，尤其注意「⚠️ 易错点」和「🔒 硬性规则」
 
 ---
 
-## 六、集群依赖
+## 一、集群设备清单（17台）
 
-本项目依赖 `/Users/wangzhenyu/Desktop/ALLProject/.设备说明.md` 中记录的集群资源：
-
-| 依赖 | 设备 | 端口/路径 | 用途 |
-|---|---|---|---|
-| OpenClaw gateway | studio01-04 + openclaw01-04 | :18789 | Agent 执行 + 推理网关（替代已弃用的 WeBrain/Hermes） |
-| Euryale 70B (vLLM) | spark01 (Ray head) + spark02 (worker) | http://192.168.71.82:8000 | 主推理后端，经 OpenClaw euryale provider 路由；spark02 不监听 :8000（Ray worker 正常行为） |
-| EXO 集群 | studio01-04 | :52415 | 本地推理（GLM-5.2-fp8 / Kimi-K2.7-Code-4bit 按需加载） |
-| ComfyUI-LB | Workstation (192.168.71.127) | :8188 | 文生图/视频（经 pc01:8188 / pc02:8193 扩展） |
-| NAS SMB | NAS (192.168.71.7) | :445 (smb://192.168.71.7) | 共享存储 44TB |
-
-**注意事项**:
-- 不把基础设施地址/密钥硬编码进代码，通过环境变量/配置文件引用
-- 项目隔离：不修改其他项目代码（OpenClaw / EXO / 其他 ALLProject 子项目）
-- spark02 :8000 未监听是**正常行为**（Ray worker），所有推理请求一律走 spark01:8000
+| # | 设备 | 角色 | LAN IP | Tailscale IP | 类型 | SSH 用户 |
+|---|------|------|--------|-------------|------|---------|
+| 1 | studio01-04 | EXO RDMA 推理 | .109/.111/.112/.113 | 100.67.43.40 / 100.91.0.121 / 100.115.27.68 / 100.126.182.23 | **Mac Studio M3 Ultra 32核 512GB**（⚠️ 不是 M2 Pro，已确认 2026-08-02） | dgmt-studio01-04 |
+| 2 | openclaw01-04 | OpenClaw 网关 | .86/.75/.81/.85 | 100.69.0.4 / 100.76.35.7 / 100.76.140.121 / 100.91.128.30 | Mac mini M2 | dgmt-openclaw01-04 |
+| 3 | spark01-02 | vLLM Ray (Euryale 70B) | .82/.84 | 100.81.235.124 / 100.86.42.89 | Linux GB10 | dgmt-spark |
+| 4 | workstation | 算力+真机服务 | 192.168.71.127 | 100.68.100.90 | Linux 4×RTX PRO 6000 | merlin |
+| 5 | pc01 | ComfyUI worker | 192.168.71.115 | 100.69.134.27 | Windows RTX 5090 | home |
+| 6 | pc02 | ComfyUI worker | 192.168.71.114 | 100.107.94.26 | Windows RTX 5090 | w |
+| 7 | NAS | SMB 存储 44T | 192.168.71.7 | 100.80.237.96 | Linux | dgmt-nas |
+| 8 | cloud | 网关/1Panel/frps | 43.119.32.180 | 100.83.78.114 | Linux | root |
+| 9 | core | 服务器(待业务) | 192.168.71.47 | 100.77.80.100 | Ubuntu | merlin |
+| 10 | MateBook | 操作终端 | — | 100.74.15.34 | macOS | 本机 |
 
 ---
 
-## 七、插件开发规范（M15 起）
+## 二、关键凭据
 
-> M15 正式化 `omni_sdk` 包（见 [transformation-plan-m12-m26.md](docs/specs/transformation-plan-m12-m26.md) §M15）。本章节定义新插件开发规范；M15 之前的 `register(ctx)` 契约见 [CLAUDE.md](CLAUDE.md) §二，通过适配层（`omni_sdk/compat.py`）继续兼容，迁移期间不破坏既有功能。
+> ⚠️ 这些凭据已多次询问用户，**禁止再次询问**
 
-### 7.1 OmniPlugin 基类契约
+| 服务 | 用户名 | 密码 | 备注 |
+|------|--------|------|------|
+| NAS SMB | dgmt-nas | Aki.19950108 | 192.168.71.7，共享名 NAS |
+| Tailscale Auth Key | — | tskey-auth-kPM5hHvNGY11CNTRL-UTn8rtRjK8Pfw3riNoGB8Pru71VhdRR9C | 已用于 core 设备授权 |
 
-所有 M15 起新增的 `omni_*` 插件必须继承 `omni_sdk.OmniPlugin`，实现以下 async 生命周期钩子：
+### NAS 挂载方式
 
-- **`on_load(ctx: PluginContext) -> None`**：插件加载时调用，完成资源初始化、事件订阅、工具注册。失败抛 `PluginLoadError`，LifecycleHost 隔离错误不影响其他插件。
-- **`on_unload() -> None`**：插件卸载时调用，释放资源（关闭 WebSocket / 文件句柄 / 音频流）。必须幂等，可被多次调用。
-- **`on_event(event_type: str, payload: dict) -> None`**：事件总线分发回调，按订阅的 `event_type` 路由。
-
-基类提供 `register_tools(ctx)` 默认实现（读取 manifest 声明的 `tools` 自动注册到 tool_registry），子类可覆盖以追加 `register_hook`。
-
-### 7.2 manifest.json 格式
-
-每个插件根目录必须有 `manifest.json`（替代 M15 前的 `plugin.yaml`，yaml 经迁移脚本兼容）：
-
-```json
-{
-  "name": "omni_voice",
-  "version": "0.1.0",
-  "description": "语音交互管道（VAD/ASR/TTS/唤醒）",
-  "author": "AI-Omni",
-  "permissions": ["voice.listen", "fs.read:./state", "fs.write:./state", "tools.register"],
-  "platforms": ["macos", "linux"],
-  "dependencies": {"omni_sdk": ">=0.1.0"},
-  "events": {
-    "publishes": ["voice.state_changed", "voice.wake_detected", "voice.asr_final"],
-    "subscribes": ["system.volume_changed"]
-  },
-  "tools": ["voice_status", "voice_listen", "voice_stop"]
-}
+**Linux (Workstation)**：已配置 fstab 自动挂载到 `/home/merlin/nas_mount`
+```bash
+# 凭据文件：/root/.smbcredentials（如不存在，内容为）
+# username=dgmt-nas
+# password=Aki.19950108
 ```
 
-字段约束：
-
-- `name`：必须以 `omni_` 开头，全小写蛇形
-- `permissions`：见 7.4
-- `platforms`：`macos` / `linux` / `windows`，缺失视为全平台
-- `dependencies`：插件间依赖，LifecycleHost 拓扑排序后加载
-
-### 7.3 插件目录结构
-
-```
-omni-brain/plugins/omni_<name>/
-├── __init__.py            # 暴露 OmniPlugin 子类（如 plugin = VoicePlugin）
-├── manifest.json          # 元数据 + 权限 + 事件 + 工具声明
-├── tools.py               # 工具 handler 实现（可选，可按域拆分）
-├── backends/              # 后端实现（如 omni_voice/backends/ 的 VAD/ASR/TTS）
-├── tests/
-│   ├── __init__.py
-│   ├── test_plugin.py     # 生命周期 + 权限 + 事件测试
-│   └── test_tools.py      # 工具 handler 测试
-└── README.md              # 可选，仅当插件对外发布
+**Windows (PC01/PC02)**：用 `net use` + `cmdkey` + 计划任务自动挂载
+```cmd
+cmdkey /add:192.168.71.7 /user:dgmt-nas /pass:Aki.19950108
+net use Z: \\192.168.71.7\NAS /persistent:yes
 ```
 
-参考既有实现：`omni-brain/plugins/omni_voice/`（`pipeline.py` + `backends/` + `state_file.py` + `control_file.py` + `agent_bridge.py`）、`omni-brain/plugins/omni_home/`（`client.py` + `ws_sync.py` + `entities.py` + `nlu.py` + `knowledge.py`）。
+---
 
-### 7.4 权限声明
+## 三、Workstation GPU 分配（🔒 硬性规则，不可随意更改）
 
-`manifest.json` 的 `permissions` 字段声明插件运行时所需能力，LifecycleHost 在 `on_load` 前校验：
+> ⚠️ **2026-07-28 错误教训**：我曾把 IndexTTS 放到 GPU3。TTS 应在 GPU0。**每次启动服务前必须核对此表**。
+> 
+> ⚠️ **2026-08-05 更新**：Nemotron vLLM 已停用，GPU3 现用于 FlashTalk + OpenTalking；ComfyUI-LB 收敛为 gpu0 + pc01 + pc02。
 
-| 权限 | 说明 | 示例 |
+| GPU | 服务 | 端口 | 显存占用 | systemd 服务 | 备注 |
+|-----|------|------|---------|-------------|------|
+| GPU0 | ComfyUI #1 | :8189 | ~0.5GB | **comfyui-gpu0.service** | 与 IndexTTS2、H3 共卡 |
+| GPU0 | IndexTTS2 | :9200 | ~7.6GB | **toiv-tts.service** | `CUDA_VISIBLE_DEVICES=0` |
+| GPU0 | MiniMax H3 (ComfyUI worker) | :8195 | ~62GB (UNet bf16 分片) | **toiv-comfyui-h3.service** | UNet 跨 GPU0/GPU2/CPU，CLIP/VAE 在 GPU2 |
+| GPU1 | Qwen3-Embedding-4B | :9302 | ~8.4GB | **qwen3-embedding.service** | `CUDA_VISIBLE_DEVICES=1` |
+| GPU1 | LiveAct batch worker | :9400 | ~58GB | **toiv-liveact.service** | `nproc_per_node=1`，单卡 GPU1 |
+| GPU2 | AI-Omni ASR (faster-whisper large-v3) | :9210 | ~4.9GB | 手动 screen | `device_index=2` |
+| GPU2 | MiniMax H3 (ComfyUI worker) | :8195 | ~48GB (CLIP bf16 + VAE) | **toiv-comfyui-h3.service** | 与 GPU0 共享 H3 工作进程 |
+| GPU3 | FlashTalk WebSocket Server | — | ~55GB | **flashtalk.service** | 数字人实时对话 |
+| GPU3 | OpenTalking 数字人统一 API | — | ~1.5GB | **opentalking.service** | + opentalking-tts-shim |
+
+### ComfyUI-LB 后端配置
+- 本地 1 后端：:8189(GPU0)
+- 远程 2 后端：pc01 :8188 / pc02 :8193
+- **GPU1/GPU2 不再跑独立 ComfyUI 后端**（GPU1 跑 LiveAct + Embedding，GPU2 跑 ASR + H3）
+- **GPU3 不跑 ComfyUI**（跑 FlashTalk + OpenTalking）
+
+### 关键服务路径（Workstation）
+
+| 服务 | 路径 | venv | 启动命令 |
+|------|------|------|---------|
+| ComfyUI | /opt/ComfyUI | /opt/ComfyUI/venv (Python 3.12, torch 2.13.0+cu130) | `CUDA_VISIBLE_DEVICES=N venv/bin/python main.py --listen 0.0.0.0 --port 818X` |
+| ComfyUI-LB | /opt/ComfyUI/comfyui-lb.py | 同上 | `venv/bin/python comfyui-lb.py` |
+| IndexTTS2 | /home/merlin/index-tts | /home/merlin/index-tts/.venv (Python 3.11, torch 2.8.0+cu128) | `CUDA_VISIBLE_DEVICES=0 .venv/bin/python toiv_tts_server.py --host 0.0.0.0 --port 9200` |
+| Qwen3-Embedding-4B | /home/merlin/models/Qwen3-Embedding-4B | /opt/nemotron-venv | `sudo systemctl start qwen3-embedding` |
+| AI-Omni ASR | /opt/ai-omni-asr | /opt/ai-omni-asr (Python 3.12, faster-whisper 1.2.1) | `screen -S ai-omni-asr -L -Logfile /opt/ai-omni-asr/logs/screen.log bash -c 'cd /opt/ai-omni-asr && source bin/activate && python asr_server.py'` |
+| MiniMax H3 (ComfyUI worker) | /home/merlin/ComfyUI-h3-eval 或 ToIV 部署路径 | ToIV venv | `sudo systemctl start toiv-comfyui-h3` |
+| LiveAct batch worker | /home/merlin/toiv | ToIV venv | `sudo systemctl start toiv-liveact` |
+| FlashTalk | /home/merlin/omnirt/runtimes/flashtalk/cuda | FlashTalk venv | `sudo systemctl start flashtalk` |
+| OpenTalking | /home/merlin/opentalking | OpenTalking venv | `sudo systemctl start opentalking` |
+| Drt ERP | /home/merlin/drt | — | **待项目负责人迁移到 core** |
+| ToIV | /home/merlin/toiv | — | **待项目负责人迁移到 core** |
+
+---
+
+## 四、NAS 模型路径
+
+| 路径 | 内容 | 大小 |
 |------|------|------|
-| `network` | 出站网络访问 | omni_home 调用 HA REST API |
-| `voice.listen` | 麦克风采集 | omni_voice VoicePipeline 启动 |
-| `home.control` | 智能家居设备控制 | omni_home 经 HA WebSocket 下发服务调用 |
-| `fs.read:<path>` | 文件系统读 | omni_voice 读 state_file.json |
-| `fs.write:<path>` | 文件系统写 | omni_voice 写 control_file.json |
-| `tools.register` | 注册工具到 tool_registry | 所有插件必备 |
+| `NAS/Windows/ComfyUI/ComfyUIModel/models` | 主模型库 | 524GB |
+| `NAS/toiv/comfyui-models` | ToIV 专用模型 | ~180GB |
 
-权限白名单宽松起步（D15.3 决策），运行时越权先日志告警而非直接拒绝，后续按需收紧。
+### ComfyUI extra_model_paths.yaml 配置
 
-### 7.5 事件总线命名规范
+**Workstation**：未配置（使用本地 /opt/ComfyUI/models）
 
-事件 `event_type` 统一 `<domain>.<event>` 点分小写：
-
-| 域 | 示例事件 | 发布者 |
-|----|----------|--------|
-| `voice.*` | `voice.state_changed` / `voice.wake_detected` / `voice.asr_final` | omni_voice |
-| `home.*` | `home.entity_changed` / `home.scene_applied` | omni_home |
-| `music.*` | `music.started` / `music.paused` / `music.track_changed` | omni_music（M17） |
-| `system.*` | `system.volume_changed` / `system.brightness_changed` / `system.locked` | omni_volume / omni_brightness / omni_power（M16） |
-
-约束：
-
-- `payload` 为可 JSON 序列化 dict，必须含 `timestamp`（ISO8601）与 `source`（插件 name）
-- 跨插件订阅经 `ctx.event_bus.subscribe(event_type, handler)`，**禁止直接 import 其他插件模块**
-- 事件总线实现见 `omni_sdk/event_bus.py`（M15）
-
-### 7.6 工具命名规范
-
-工具 `name` 统一 `<domain>_<action>` 蛇形小写：
-
-| 域 | 示例工具 | 实现插件 |
-|----|----------|----------|
-| voice | `voice_status` / `voice_listen` / `voice_stop` | omni_voice |
-| home | `home_list_entities` / `home_call_service` / `home_apply_scene` | omni_home |
-| music | `music_play` / `music_pause` / `music_next` | omni_music（M17） |
-| system | `system_set_volume` / `system_set_brightness` / `system_lock_screen` | omni_volume / omni_brightness / omni_power（M16） |
-
-约束：
-
-- 工具 handler 返回 JSON 字符串，结构 `{"ok": true, ...}` / `{"ok": false, "error": {"code": "E_XXX", "message": "..."}}`（沿用 register(ctx) 契约）
-- `schema` 为 OpenAI function 风格 JSON Schema，参数必须有 `type` / `description` / `required`
-- `emoji` 参数保留（Hermes CLI 展示契约，见 [CLAUDE.md](CLAUDE.md) §二），前端渲染不使用
-
-### 7.7 生命周期管理
-
-LifecycleHost（`omni_sdk/lifecycle.py`）按以下顺序启动插件：
-
-1. **扫描**：遍历 `omni-brain/plugins/omni_*/`，读取 `manifest.json`
-2. **加载**：按 `dependencies` 拓扑排序，逐个 `import` 插件模块
-3. **依赖注入**：构造 `PluginContext`（config / event_bus / tool_registry / permission_checker / logger），传入 `on_load`
-4. **注册**：基类 `register_tools` 默认实现读取 `manifest.tools` 注册到 tool_registry；子类可在 `on_load` 中追加 `ctx.register_hook`
-5. **就绪**：发布 `plugin.loaded` 事件，插件进入运行态
-
-卸载为反向流程：`on_unload` → 注销工具 → 取消事件订阅 → 释放资源。任一插件加载失败，LifecycleHost 记录日志并跳过，不阻塞其他插件（错误隔离）。
-
-### 7.8 热加载说明
-
-`omni_sdk` 提供 `LifecycleHost.reload(plugin_name)` API（D15.2 决策）：
-
-- **M15 默认不启用热加载**——运行时热加载有状态不一致风险，先提供能力，后续按需开启
-- **启用方式**：配置文件 `omni_sdk.hot_reload = true`，或环境变量 `OMNI_SDK_HOT_RELOAD=1`
-- **触发机制**：监听 `manifest.json` 文件变更（watchdog），自动 `on_unload` → 重新 import → `on_load`
-- **期间行为**：该插件的事件订阅暂停，进行中的工具调用返回 `E_PLUGIN_RELOADING`
+**PC01/PC02**（已配置，注意不要包含 `custom_nodes`，会导致启动报错）：
+```yaml
+# C:\ComfyUI\extra_model_paths.yaml
+nas:
+    base_path: "Z:/Windows/ComfyUI/ComfyUIModel"
+    checkpoints: models/checkpoints
+    clip: models/clip
+    clip_vision: models/clip_vision
+    configs: models/configs
+    controlnet: models/controlnet
+    embeddings: models/embeddings
+    loras: models/loras
+    upscale_models: models/upscale_models
+    vae: models/vae
+    text_encoders: models/text_encoders
+    diffusion_models: models/diffusion_models
+    unet: models/unet
+```
 
 ---
 
-## 端口配置
+## 五、Core 设备状态
 
-> 参考: /Users/wangzhenyu/Desktop/ALLProject/项目端口规划指南.md
+> **角色变更**：core 已从 Docker 监控栈改为真机服务器，待项目负责人推送 ToIV/DRT 业务
 
-| 服务 | 端口 | 说明 |
+| 项目 | 状态 |
+|------|------|
+| PostgreSQL 18 | ✅ 真机运行 |
+| Redis | ✅ 真机运行 (127.0.0.1:6379) |
+| Docker | ❌ 已禁用+全清（12个监控容器已删） |
+| ToIV/DRT 代码 | 待项目负责人推送 |
+| 备份文件 | 在 Workstation /tmp（drt_pg_dump.sql / drt_redis_dump.rdb / drt_env_backup） |
+
+---
+
+## 六、⚠️ 易错点记录（避免重复犯错）
+
+### 1. GPU 分配搞错（2026-07-28 / 2026-08-05 更新）
+- **错误**：把 IndexTTS 放到 GPU3
+- **正确**：GPU3 现用于 FlashTalk + OpenTalking；TTS 在 GPU0
+- **教训**：启动服务前必须核对第三节 GPU 分配表，Nemotron vLLM 已停用
+
+### 2. /tmp tmpfs 吃内存（2026-07-28）
+- **错误**：往 /tmp 写大文件（toiv_code.tar.gz 8G）导致内存被吃
+- **正确**：/tmp 是 tmpfs（内存盘），大文件应写到磁盘
+- **教训**：打包备份文件写到 /var/tmp 或指定磁盘目录
+
+### 3. Windows SSH session 隔离（2026-07-28）
+- **错误**：在 SSH session 中 net use 映射 Z: 盘，用户桌面看不到
+- **正确**：用 cmdkey 保存凭据 + schtasks 在登录时运行 net use，或创建 .bat 启动脚本
+- **教训**：Windows 的 SMB 映射是 per-session 的
+
+### 4. ComfyUI-LB 后端数量搞错（2026-07-27）
+- **错误**：曾配置 6 个后端
+- **正确**：5 个后端（3 本地 GPU0/1/2 + pc01 + pc02），GPU3 不跑 ComfyUI
+
+### 5. Windows SSH session 中启动 ComfyUI 子进程被终止（2026-07-28）
+- **错误**：通过 ssh 用 `Start-Process` 或 `wscript` 启动 ComfyUI，ssh 断开后子进程被杀
+- **正确**：Windows 计划任务直接执行 `start_comfyui.bat`，且 `LogonType` 用 `InteractiveToken` 在用户登录后触发
+- **教训**：不要依赖 ssh 启动长期运行的 GUI/服务进程；计划任务 + bat 是最稳定的开机自启方案
+
+### 6. 重复询问 NAS 密码（多次）
+- **错误**：多次询问 NAS SMB 密码
+- **正确**：密码已记录在第二节，禁止再问
+
+### 7. ⚠️ Mac Studio 配置搞错 + 臆造内存数据（2026-08-02，硬性错误）
+- **错误1**：AGENTS.md 第一节将 studio01-04 写成 "Mac Studio M2 Pro"，实际是 **M3 Ultra 32核 512GB**
+- **错误2**：回答用户问题时臆造 "4台总内存只有192GB（48GB×4）"，导致错误结论 "K3 装不下"
+- **实际**：4台 × 512GB = **2TB 总内存**，K3（1.45TB）完全可以装下
+- **教训**：🔒 **硬性规则** —— 回答任何涉及硬件配置/容量的问题前，必须先 SSH 确认真实配置，禁止凭记忆臆造数据
+- **修复**：第一节已更新为 "Mac Studio M3 Ultra 32核 512GB"
+
+### 8. Thunderbolt 169.254 地址硬编码会失效（2026-08-02）
+- **错误**：在 start_exo.sh 中硬编码 169.254.x.x 链路本地地址作为 bootstrap peers
+- **原因**：macOS 的 TB 链路本地地址每次重启或 TB 重新协商都会变化
+- **正确**：bootstrap peers 用以太网固定地址（192.168.71.x），让 EXO mDNS 自动发现 TB 接口建立 RDMA
+- **教训**：链路本地地址（169.254/16）永远不要硬编码到配置文件中
+
+---
+
+## 七、操作历史
+
+### 2026-07-28 会话
+
+| 时间 | 操作 | 结果 |
 |------|------|------|
-| omni-hud dev | 1420 | Tauri 默认，固定不变 |
-| UniHub dev | 4702 | 子项目 |
+| 05:50 | 停止 Workstation 所有服务（Docker 4容器 + Caddy + socat代理 + dcgm-exporter + cups） | ✅ load 3.15→0.92 |
+| 05:55 | 清理 /tmp 残留文件（toiv_code.tar.gz 8G 等） | ✅ 释放 8G 内存 |
+| 06:00 | 全设备状态检查（15台SSH验证） | ✅ 14在线，1离线(cloud SSH超时) |
+| 06:04 | Core Docker 清理（12个监控容器全删，docker禁用） | ✅ |
+| 06:10 | 启动 ComfyUI 3卡 + LB | ✅ :8188-8191 全部 200 |
+| 06:15 | 启动 IndexTTS（误放 GPU3） | ❌ 后修正 |
+| 09:00 | 修正 GPU 分配：TTS 迁至 GPU0，启动 Nemotron vLLM on GPU3 | ✅ :8000/:9200 正常 |
+| 09:10 | PC02 磁盘分析：真凶是 Steam(40G)+炉石(11G)，非模型 | ✅ |
+| 09:15 | PC02 NAS 挂载（cmdkey + schtasks MountNAS） | ✅ 计划任务已注册 |
+| 09:20 | 创建 AGENTS.md | ✅ 本文件 |
+| 10:00 | 排查 PC01 ComfyUI 无法启动 | ✅ 原因：计划任务执行 wscript 且 ssh 触发子进程被杀 |
+| 10:05 | 修正 PC01 计划任务为直接执行 start_comfyui.bat | ✅ PC01 :8188 启动并加载 NAS 模型 |
+| 10:10 | 验证 PC02 :8193 加载 NAS 模型 | ✅ 805 节点，checkpoints 列表来自 NAS |
+| 11:00 | 优化 Nemotron vLLM 启动参数 | ✅ 去掉 --enforce-eager，启用 chunked-prefill/prefix-caching，显存 88%→94.5%，:8000 推理正常 |
+| 13:30 | 恢复 Qwen3-Embedding-4B 真机服务 | ✅ 安装 sentence-transformers，systemd 托管 :9302，输出维度 2560，OpenAI /v1/embeddings 兼容 |
+| 14:00 | 更新设备清单并分发到所有项目 | ✅ 已同步到 22 个项目目录（含 ToIV 新增） |
+| 14:05 | 清理 .archive/old-docs 过期文档 | ✅ 删除 8 个旧版设备说明/迁移计划/调研报告 |
+| 14:10 | 补齐 AGENTS.md 设备清单 Tailscale IP | ✅ 17 台设备 IP 全部具体化 |
 
-端口段 47XX 专属 AI-Omni。
+### 2026-08-05 会话
+
+| 时间 | 操作 | 结果 |
+|------|------|------|
+| 23:00 | 排查 Mac Studio EXO GLM-5.2-fp8 下载/加载失败 | ✅ 修复 hf-mirror.com endpoint、补齐 studio04 config.json、修正 chat_template |
+| 23:20 | 4 台 Mac Studio 重启 EXO，重新加载 GLM-5.2-fp8 | ✅ Tensor · MLX RDMA 加载成功， Ready to chat |
+| 23:30 | API 测试 GLM-5.2-fp8 | ✅ 输出正常："I'm GLM, a large language model developed by Z.ai..." |
+| 23:40 | 检查 Workstation / PC01 / PC02 服务健康 | ✅ ComfyUI-LB、IndexTTS2、Embedding、ASR、LiveAct、H3、FlashTalk、OpenTalking 均正常；Nemotron vLLM 确认停用 |
+| 23:50 | 更新 AGENTS.md 并分发到所有项目 | ✅ GPU 分配表同步为当前真实状态 |
+
+---
+
+## 八、待办事项
+
+- [x] PC01 ComfyUI 配置 extra_model_paths.yaml 指向 NAS（✅ 端口8188）
+- [x] PC01 start_with_nas.bat 启动脚本（✅ 端口8188）
+- [x] PC01 计划任务 MountNAS（✅ 用户 DESKTOP-04VJ6QG\home）
+- [x] PC01 凭据保存到 Windows 凭据管理器（✅ 已保存）
+- [x] PC02 ComfyUI 配置 extra_model_paths.yaml 指向 NAS（✅ 端口8193）
+- [x] PC02 start_with_nas.bat 启动脚本（✅ 端口8193）
+- [x] PC02 计划任务 MountNAS（✅ 用户 DESKTOP-T9JILFS\w）
+- [x] PC02 凭据保存到 Windows 凭据管理器（✅ 已保存）
+- [x] PC01/PC02 重启 ComfyUI 使 extra_model_paths.yaml 生效（✅ PC01 :8188 / PC02 :8193 均加载 NAS 模型）
+- [x] Workstation SGLang/infinity 真机未安装（✅ 已用 Qwen3-Embedding-4B 真机 sentence-transformers 服务替代，:9302 恢复）
+- [ ] Cloud SSH banner 超时排查（HTTPS 正常）
+- [ ] 项目负责人推送 ToIV/DRT 到 core
+- [ ] Cloud 反代切换指向 core（待 core 业务就绪后）
+- [x] 清理 .archive 中过期的部署残留（backup-20260722 / deploy-residues）

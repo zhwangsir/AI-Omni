@@ -218,11 +218,15 @@ def test_repeat_named(capsys: pytest.CaptureFixture[str], state_file: Path) -> N
     assert persisted["repeat_mode"] == "list_loop"
 
 
-def test_repeat_invalid_mode_argparse_exits(state_file: Path) -> None:
-    # argparse choices 校验 → SystemExit(2)
+def test_repeat_invalid_mode_returns_json_invalid_params(
+    capsys: pytest.CaptureFixture[str], state_file: Path
+) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main(["repeat", "bogus", "--fake"])
-    assert exc.value.code == 2
+    assert exc.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "E_INVALID_PARAMS"
 
 
 def test_state_named(capsys: pytest.CaptureFixture[str], state_file: Path) -> None:
@@ -271,10 +275,15 @@ def test_build_parser_has_all_subcommands() -> None:
     assert expected <= set(sub_map.keys()), f"缺少子命令: {expected - set(sub_map.keys())}"
 
 
-def test_no_subcommand_argparse_exits() -> None:
+def test_no_subcommand_returns_json_invalid_params(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     with pytest.raises(SystemExit) as exc:
         cli.main([])
-    assert exc.value.code == 2
+    assert exc.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "E_INVALID_PARAMS"
 
 
 # ---------------------------------------------------------------------------

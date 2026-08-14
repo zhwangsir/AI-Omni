@@ -3,7 +3,7 @@
   "description": "本地大脑 + 插件化能力的 AI 全能助手（五层架构，隐私优先，核心数据全部本地运行）",
   "created": "2026-07-20",
   "current_phase": 5,
-  "current_milestone": "M32",
+  "current_milestone": "M46",
   "phases": [
     {
       "id": 1,
@@ -28,7 +28,7 @@
     {
       "id": 5,
       "name": "办公自动化增强",
-      "status": "pending"
+      "status": "in_progress"
     }
   ],
   "milestones": [
@@ -241,7 +241,7 @@
       "name": "数字人渲染后端扩展：OpenTalking 可选接入（AvatarRenderer 双后端，方案 A）",
       "status": "completed",
       "started": "2026-07-22",
-      "spec": "docs/research/opentalking-live2d-replacement.md",
+      "spec": "（原 docs/research/opentalking-live2d-replacement.md，已归档删除）",
       "subtasks": [
         {
           "id": "M6.1",
@@ -276,7 +276,7 @@
       "status": "completed",
       "started": "2026-07-23",
       "completed": "2026-07-25",
-      "spec": "docs/specs/m7-developing-field.md",
+      "spec": "（原 docs/specs/m7-developing-field.md，已归档删除）",
       "subtasks": [
         {
           "id": "M7.1",
@@ -1443,7 +1443,7 @@
       "status": "completed",
       "started": "2026-07-28",
       "completed": "2026-07-28",
-      "test_summary": "pytest 2063 passed / omni_openclaw 覆盖率 86.63% (>=80%) / vitest 1283 passed / cargo test 126 passed / tsc --noEmit 0 errors / vite build ✓",
+      "test_summary": "pytest 2526 passed / vitest 1302 passed (75 files) / tsc --noEmit 0 errors / vite build ✓; M32.29 真机验证：唤醒词「雪莉」经别名+ASR偏置+hangover 后真机可唤醒，回声自激循环消除；M32.30 真机验证：四场景风格样本合成成功（calm/sad/serious + 长文本分段），音色为 IndexTTS2 灰原哀参考音频克隆",
       "subtasks": [
         {
           "id": "M32.1",
@@ -1474,9 +1474,535 @@
           "id": "M32.6",
           "name": "真实可用性验证与修复（cluster health URL 修正为 /v1/models，test_tools.py fixture 修复，openclaw_health/chat/cluster_health 真实调用通过）",
           "status": "completed"
+        },
+        {
+          "id": "M32.7",
+          "name": "全功能测试闭环（UniHub 移动端回归 922 passed + omni_* CLI fake/real 冒烟 + 真实端点巡检：OpenClaw/Euryale/ComfyUI 健康，Embedding .127:9302 健康，HA 失联已知）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.8",
+          "name": "修复 omni_voice / omni_home 错误格式契约偏差：_err() 返回 {code, message} 对象，同步更新 18 处测试断言，全量回归 2063 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.9",
+          "name": "CLI 参数解析错误统一返回 JSON E_INVALID_PARAMS：新增 omni_sdk/cli_utils.py JsonErrorArgumentParser，omni_voice/home/music/lyrics/weather 五插件 CLI 接入，新增 14 个缺参/未知参数测试，全量回归 2073 passed / vitest 1283 passed / cargo 126 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.10",
+          "name": "修复默认唤醒词漂移：VoiceConfig.wake_word 由 hey_omni 改为雪莉，与 omni_sdk identity 保持一致；同步更新 3 处测试断言，新增 test_default_wake_word_matches_identity",
+          "status": "completed"
+        },
+        {
+          "id": "M32.11",
+          "name": "VoiceBackendError 统一映射为 E_BACKEND_UNAVAILABLE：voice_speak / voice_listen_once / voice_pipeline_start 三工具补齐后端不可用错误码，更新 2 处既有测试 + 新增 1 处 listen_once 测试",
+          "status": "completed"
+        },
+        {
+          "id": "M32.12",
+          "name": "llm_endpoint 默认值指向集群 openclaw01(192.168.71.86:18789)：避免本地无网关时启动失败；同步更新 test_config.py 断言；语音管道重启后使用真实网关",
+          "status": "completed"
+        },
+        {
+          "id": "M32.13",
+          "name": "桌面端可见性优化：AgentPanel 状态指示灯响应态变亮绿并加脉冲动画；三套主题粒子色板整体提亮；同步更新 AgentPanel/createSpace 测试断言；全量 vitest 1283 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.14",
+          "name": "ASR 真机服务部署接入与端到端验证：omni_voice 配置拆分为 llm/asr/tts 三端点，ASR 接入 Workstation :9210 faster-whisper large-v3；真机 CLI 验证 LLM/TTS/ASR 三后端均通",
+          "status": "completed"
+        },
+        {
+          "id": "M32.15",
+          "name": "IndexTTS2 参考音频配置：新增 VoiceConfig.tts_ref_audio，默认指向 models/tts_ref/default.wav，支持运行时切换；避免相对路径导致工作目录不同而降级为服务默认音色",
+          "status": "completed"
+        },
+        {
+          "id": "M32.16",
+          "name": "IndexTTS2 情感/风格提示文本配置：新增 VoiceConfig.tts_emo_text，默认偏向清冷温柔、略带忧伤的少女音色以贴近灰原哀中配质感",
+          "status": "completed"
+        },
+        {
+          "id": "M32.17",
+          "name": "IndexTTS2 情感强度配置：新增 VoiceConfig.tts_emo_alpha 默认 0.95；IndexTTS2 后端同步支持 emo_text/emo_alpha/ref_audio 参数透传",
+          "status": "completed"
+        },
+        {
+          "id": "M32.18",
+          "name": "TTS 默认参考音频质量优化：诊断运行时确实走了 IndexTTS2 且 ref_audio 生效，生成多组灰原哀风格候选参考音频，替换 default.wav 为 8.05s 强风格参考音频；新增默认 WAV 有效性测试，全量回归 2114 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.19",
+          "name": "TTS 情感文本默认关闭：VoiceConfig.tts_emo_text 默认值由灰原哀风格提示改为空字符串，tools 将空值规范化为 None 使 IndexTTS2 不上传 emo_text 字段；保留运行时通过 voice_config set 临时开启能力，同步修复/新增 2 处测试，全量回归 2116 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.20",
+          "name": "默认参考音频替换为 01/03/09 组合：将用户认可的 emotion_01、emotion_03、emotion_09 三段参考音频拼接为 20.86s 组合样本并设为 default.wav；真机 TTS 合成验证通过，全量回归 2116 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.21",
+          "name": "代码审计修复：发现 omni_voice 默认参考音频路径仍指向 haibara_sample.wav 而非新 default.wav，且 omni_openclaw 硬编码跨仓库读取 AIHub/设备说明.md；已修复为指向 AI-Omni 项目根目录，新增 2 处回归测试，全量回归 2118 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.22",
+          "name": "全面代码优化：修复 voice_config set 空 key/None value 未正确拒绝（统一 E_INVALID_PARAMS）、omni_music cli 私有属性注入改为公共 start_session()、test_config 中 pytest.skip 改为硬断言；新增 3 条回归测试，全量回归 2121 passed",
+          "status": "completed"
+        },
+        {
+          "id": "M32.23",
+          "name": "系统性资源泄漏修复：ClusterChecker 默认 HTTP backend 改惰性创建（纯 device_lookup 不再泄漏 httpx client）；omni_openclaw 14 个 async 工具 handler 改用 _run_with 确保 client/pipeline 同一事件循环内 close；5 处 urllib HTTPError 补 exc.close()（Python 3.14 起未关闭触发 ResourceWarning）；omni_music test_scanner SQLite 连接自动清理；修复 test_tool_returns_json/test_ssh_default_asyncssh 真实网络依赖；新增 8 条回归测试，全量回归 2131 passed 且 -W error::ResourceWarning 零告警",
+          "status": "completed"
+        },
+        {
+          "id": "M32.24",
+          "name": "高价值增强：QQMusicSource 补 ownership-aware close()/上下文管理器（修复缓存 httpx.Client 泄漏）；omni_weather/config_store.py 覆盖率 74%→95%（load/save 失败降级路径补测）；omni_openclaw/__init__.py 覆盖率 77%→100%（register 契约 + OpenClawPlugin 接线补测）；新增 11 条测试，reviewer 审计通过，全量回归 2142 passed 且 -W error::ResourceWarning 零告警",
+          "status": "completed"
+        },
+        {
+          "id": "M32.25",
+          "name": "P0 死锁修复 + SDK 覆盖率提升：修复 DebouncedWriter.flush() 死锁（flush 持有 threading.Lock 不可重入锁调用 _do_flush，后者再次 with self._lock 永久 hang，timer 路径正常但显式 flush 必死）；_write_count/_last_write_time/_flush_count 计数更新收回锁内（writer_func 保持锁外防重入）；新建 test_debounce.py 12 条测试（含死锁回归：daemon 线程 + join(2) 超时判定，修复前 8 failed 实证）；debounce.py 覆盖率 30%→100%、compat.py 覆盖率 88%→100%（_LegacyEventBusAdapter.publish 无循环 asyncio.run / 有循环 create_task 双路径 + subscribe/unsubscribe 委托，4 条行为断言测试）；reviewer 审计通过（旧版代码 /tmp 实证死锁真实存在），全量回归 2158 passed 且 -W error::ResourceWarning 零告警",
+          "status": "completed"
+        },
+        {
+          "id": "M32.26",
+          "name": "P1 死锁修复（同类第二例）+ 四模块覆盖率提升：修复 LibraryWatcher._flush_locked() 锁内回调死锁（持有 threading.Lock 不可重入锁调用用户回调 on_added/on_removed/on_modified，回调重入 stop()/_schedule_debounce 即永久 hang，与 M32.25 DebouncedWriter 同类；修复为锁内快照 (callback, path) 列表 + 锁外 _run_callbacks 执行，_schedule_debounce 立即 flush 路径与 _flush_debounce 两路同改）；3 条死锁回归测试（daemon 线程 + join(2) 超时判定，reviewer 还原 git HEAD 旧版实证 3 failed red→green）；覆盖率：omni_voice/audio.py 68%→100%（新建 test_audio_backends.py 13 条，sys.modules 注入 fake sounddevice 测构造器成功路径 + sys.modules[k]=None 测 ImportError→VoiceBackendError）、omni_voice/conversation.py 80%→100%（+10 条：tools=None / JSON 解析失败 / on_tool_start+on_tool_end 回调异常吞掉 / 非 ToolError 分发异常 / chat_messages TypeError 回退 chat() 双路 / properties / _drop_oldest_turn 空历史边界）、omni_lyrics/lyrics_chain.py 72%→100%（+16 条：fake mutagen ModuleType 注入覆盖 5 个 tag key + list/非list/空值/空白分支 + ImportError 路径 + _parse(None) + song_id 非 str）、omni_openclaw/tools.py 78%→100%（+23 条：fake client 类覆盖 10 个 handler happy path + on 非 bool E_INVALID_PARAMS 分支 + closed=True 资源关闭断言）；reviewer 审计通过（含旧版实证死锁、测试有效性抽查无镜像断言），全量回归 2228 passed 且 -W error::ResourceWarning 零告警",
+          "status": "completed"
+        },
+        {
+          "id": "M32.27",
+          "name": "浏览器全功能验证（非框架整屏测试）+ favicon 404 修复：Chrome DevTools MCP 驱动真实浏览器加载 vite dev server (:1420)，逐项验证——3D 粒子球 WebGL 渲染（canvas 1000×1656）、Debug API 17 项全挂载、fieldMode space↔shelf 切换联动 DOM、WellZone hover 控制环显影（3 主题点 + 睡眠切换 + 井心 caption 卡 + 离线状态点）、主题切换 CSS 变量写入 + localStorage 持久化（developer-amber/silver-gray/safelight-red 三主题实测）、睡眠/唤醒切换、壁纸模式 Ctrl+Shift+W 快捷键（浏览器降级态 voice 离线恒 full 符合设计）、Shelf 模式 0 卡片优雅占位、LibraryView 挂载完整 UI、音乐三件套空态占位（未在播放/队列为空）、AgentPanel 紧凑 idle 模式 74px、音乐/天气/库 store 非 Tauri 环境优雅降级（中文错误提示不崩溃）、点击聚集事件派发无异常；修复唯一控制台错误 favicon.ico 404（index.html 内联 SVG data-URI 图标，零新增文件）；身份栏正确显示「雪莉待命中」；全量回归 pytest 2228 passed + vitest 1283 passed + tsc/vite build ✓",
+          "status": "completed"
+        },
+        {
+          "id": "M32.28",
+          "name": "18 个低覆盖率模块全部提升至 100% + cancel_all 测试竞态修复：六路并行 subagent 针对 omni_music(tools/watcher)、omni_lyrics(tools/__init__)、omni_weather(tools/fake_open_meteo/geocoding/ip_location)、omni_openclaw(aicg/client/cluster)、omni_voice(pipeline/vad_wake)、omni_home(ws_sync)、omni_music/auth(cookie_store)、omni_sdk(utils)、omni_power(backends)、omni_process(tools) 共 18 个 80-89% 模块定向补测试（仅新增测试，零生产代码改动），全部达到 100% 行覆盖；修复 omni_sdk test_cancel_all_cancels_tracked_tasks 竞态失败（done 回调经 loop.call_soon 排队，await 后需 sleep(0) 让出事件循环再断言清理）；全量回归 pytest 2433 passed（较 M32.27 +205）+ vitest 1283 passed + tsc/vite build ✓，插件总覆盖率 97%",
+          "status": "completed"
+        },
+        {
+          "id": "M32.29",
+          "name": "唤醒无响应 P0 修复 + 回声自激过滤：VAD hangover 帧容忍音节间能量跌落（speech_frames 15→8、hangover 4 帧）；唤醒词别名扩展（雪梨/雪利/雪丽/shelly，omni_sdk/identity.py 单一数据源）；ASR 识别偏置 asr_prompt 注入唤醒词上下文并接入装配；回声过滤（transcript 归一化 + 子串/相似度≥0.6 双判据丢弃自身 TTS 回声）；分级录音上限（首轮投机 wake_max_record_s=8s / 续听 30s）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.30",
+          "name": "IndexTTS2 灰原哀（台配魏晶琦）四场景情感风格复刻：tts_styles.py 预设 calm/sad/teasing/serious（语速基调+情绪浓度+核心气质+发声细节+句尾处理提示词结构，emo_alpha 0.55-0.7、top_p 0.75、temperature 0.65）；IndexTTS2 后端支持 style 预设 + top_p/temperature 采样参数透传 + 长文本 ≤70 字分段合成拼接（text_segment.py）；VoiceConfig 新增 tts_style 运行时可配（默认 calm）；服务端 gen_kwargs 键名修复 + torchaudio soundfile 后端 monkeypatch 修复段错误；真机合成 4 组试听样本（models/tts_ref/listen/m32_30/）",
+          "status": "completed"
+        },
+        {
+          "id": "M32.30a",
+          "name": "移除「siri」唤醒别名（macOS Siri 冲突）：siri /ˈsɪri/ 与「雪莉」发音差别明显且双向冲突（喊雪莉触发Siri/喊Siri误唤醒雪莉），从 omni_sdk/identity.py wake_aliases 移除；新增两条防回归测试（test_siri_not_in_aliases + test_siri_does_not_match_default_config）；ASR asr_prompt 偏置仍能正确引导 whisper 转写",
+          "status": "completed"
+        },
+        {
+          "id": "M32.31",
+          "name": "桌面待机完全透明 + 唤醒汇聚成球：IDLE_PARAMS dimFactor 0.8→0、particleShape sphere→null（释放为自由流场），待机不占任何视野；唤醒（wake_listening）setField 推 dim=1+sphere，经 Space.morphTo 从屏幕四周汇聚成球（≥600ms smoothstep）；createSpace.setField 原生支持 null↔sphere 过渡无需改动；FieldStage 保留 null 状态滞后保护（活跃形态收到 null 不释放，防 IPC 抖动误消散）；同步更新 fieldState/FieldStage 测试断言与注释（reducedMotion idle dim=0、dormant 乘法语义改经 speaking 验证）",
+          "status": "completed"
         }
       ],
-      "notes": "M32 完成 omni_openclaw AICG 四层流水线，并于提交前执行真实可用性验证：openclaw_health 返回正确网关配置；openclaw_chat 真实调用 L1（qwen3.6-uncensored）成功返回内容；openclaw_cluster_health 修复健康检查 URL 后 gateway/L1/L4/ComfyUI/TTS 均正常。2026-07-29 对齐最新设备说明.md：Embedding 端口从 :9301 修正为 :9302（Qwen3-Embedding-4B），cluster health 探针相应改为 /health；Home Assistant :8211 在基础设施侧已拆除，智能家居类工具调用将返回 E_HA_UNAVAILABLE。M28 微信发送改为经 wechat-bridge :9095 /wechat 投递 Alertmanager 告警：AI-Omni 插件侧 HTTP 调用与 payload 构造正确，wechat-bridge 服务可达，但实际微信投递被 OpenClaw agent 标记为 delivery suppressed（NO_REPLY），属 OpenClaw/bridge 基础设施行为，不在 AI-Omni 代码修复范围内。修复内容：client.py 新增 _wechat_backend 与 send_wechat_message Alertmanager 包装；tools.py / manifest.json 移除 openclaw_poll_wechat；cluster.py 对 OpenAI 兼容端点使用 /v1/models 作为探针。全量回归：pytest 2063 passed，omni_openclaw 覆盖率 86.63% ≥80%；vitest 1283 passed；cargo test 126 passed；tsc --noEmit 0 errors；vite build ✓。Phase 4『多模态感知』随 M32 完成而关闭，current_phase 推进至 5『办公自动化增强』。"
+      "notes": "M32 完成 omni_openclaw AICG 四层流水线，并于提交前执行真实可用性验证：openclaw_health 返回正确网关配置；openclaw_chat 真实调用 L1（qwen3.6-uncensored）成功返回内容；openclaw_cluster_health 修复健康检查 URL 后 gateway/L1/L4/ComfyUI/TTS 均正常。2026-07-29 对齐最新设备说明.md：Embedding 端口从 :9301 修正为 :9302（Qwen3-Embedding-4B），cluster health 探针相应改为 /health；Home Assistant :8211 在基础设施侧已拆除，智能家居类工具调用将返回 E_HA_UNAVAILABLE。M28 微信发送改为经 wechat-bridge :9095 /wechat 投递 Alertmanager 告警：AI-Omni 插件侧 HTTP 调用与 payload 构造正确，wechat-bridge 服务可达，但实际微信投递被 OpenClaw agent 标记为 delivery suppressed（NO_REPLY），属 OpenClaw/bridge 基础设施行为，不在 AI-Omni 代码修复范围内。修复内容：client.py 新增 _wechat_backend 与 send_wechat_message Alertmanager 包装；tools.py / manifest.json 移除 openclaw_poll_wechat；cluster.py 对 OpenAI 兼容端点使用 /v1/models 作为探针。全量回归：pytest 2063 passed，omni_openclaw 覆盖率 86.63% ≥80%；vitest 1283 passed；cargo test 126 passed；tsc --noEmit 0 errors；vite build ✓。Phase 4『多模态感知』随 M32 完成而关闭，current_phase 推进至 5『办公自动化增强』。2026-07-29 追加 M32.14：ASR 真机服务已部署于 Workstation 192.168.71.127:9210（GPU2 cuda:2，faster-whisper large-v3）；omni_voice 默认配置拆分为 llm_endpoint/asr_endpoint/tts_endpoint 三独立端点；llm_model 默认值修正为 Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16（/v1/models 返回的 qwen3.6-uncensored 为 served-model-name 别名）；真机 CLI 验证 LLM 对话、TTS 合成与播放、ASR 静音转写均成功，voice_listen_once 真机运行无报错（当前 IDE 终端环境无有效语音输入，转写为空）。2026-07-30 追加 M32.19：tts_emo_text 默认关闭，日常对话仅做音色克隆；临时情感渲染仍可通过 voice_config set 开启。2026-07-30 追加 M32.20：默认参考音频已替换为 emotion_01 + emotion_03 + emotion_09 三段拼接的 20.86s 组合样本，真机 TTS 合成验证通过。2026-07-30 追加 M32.21：代码审计发现并修复两个问题——omni_voice 默认参考音频路径仍指向 haibara_sample.wav 而非新 default.wav；omni_openclaw 硬编码跨仓库读取 AIHub/设备说明.md，已改为项目根目录相对路径。2026-07-30 追加 M32.22：全面代码优化——voice_config set 空 key/None value 统一返回 E_INVALID_PARAMS、omni_music cli 私有属性注入改为公共 start_session()、test_config 中 pytest.skip 改为硬断言；新增 3 条回归测试，全量回归 2121 passed。2026-07-31 追加 M32.23：系统性资源泄漏修复——ClusterChecker 默认 HTTP backend 改惰性创建（构造不再立即建 httpx.AsyncClient，纯 device_lookup 文件查询零网络资源）；omni_openclaw/tools.py 新增 _run_with，14 个 async 工具 handler 全部改为在同一事件循环内 await client/pipeline.close()（此前长驻进程每次工具调用泄漏一个 httpx 连接池）；5 处 urllib.error.HTTPError 补 exc.close()（omni_home/client.py、agent_bridge.py、openai_asr.py、openai_tts.py、indextts2_tts.py，Python 3.14 起未关闭触发 ResourceWarning）；omni_music test_scanner 增加 _tracked_db 登记 + autouse fixture 自动关闭 SQLite 连接；修复 test_tool_returns_json（打桩 HomeAssistantClient/ClusterChecker）与 test_ssh_default_asyncssh（注入 FakeHttpBackend）的真实网络依赖；新增 8 条回归测试（TestLazyBackend×4、_run_with×2、TestDbConnectionCleanup×2），全量回归 2131 passed 且 -W error::ResourceWarning 严格模式零告警。2026-07-31 追加 M32.25：P0 死锁修复——DebouncedWriter.flush() 持有 threading.Lock（不可重入）调用 _do_flush()，后者再次 with self._lock 永久 hang（reviewer 用旧版代码 /tmp 实证）；修复为锁内仅 cancel timer、锁外调 _do_flush；计数更新收回锁内，writer_func 保持锁外防重入；debounce.py 覆盖率 30%→100%（新建 test_debounce.py 12 条，含死锁回归 daemon 线程 + join(2) 判定，修复前 8 failed 实证 red→green）；compat.py 覆盖率 88%→100%（_LegacyEventBusAdapter publish 双路径 + subscribe/unsubscribe 委托 4 条行为断言）；全量回归 2158 passed 且 -W error::ResourceWarning 零告警。2026-07-31 追加 M32.26：P1 死锁修复（同类第二例）——LibraryWatcher._flush_locked() 持有不可重入锁调用用户回调，回调重入 stop()/_schedule_debounce 即死锁；修复为锁内快照 + 锁外 _run_callbacks；reviewer 还原 git HEAD 旧版实证 3 failed red→green；覆盖率四模块全部至 100%——omni_voice/audio.py 68%→100%（新建 test_audio_backends.py 13 条，fake sounddevice 注入）、omni_voice/conversation.py 80%→100%（+10 条错误/回退路径）、omni_lyrics/lyrics_chain.py 72%→100%（+16 条，fake mutagen 注入）、omni_openclaw/tools.py 78%→100%（+23 条，fake client happy path + 资源关闭断言）；全量回归 2228 passed 且 -W error::ResourceWarning 零告警。2026-08-04 追加 M32.27：浏览器全功能验证（用户指定不走框架整屏测试）——Chrome DevTools MCP 驱动真实浏览器加载 vite dev server (:1420)，逐项验证 3D 粒子球 WebGL 渲染、Debug API 17 项挂载、fieldMode 切换、WellZone hover 控制环（主题点/睡眠/井心 caption 卡）、三主题切换 + localStorage 持久化、睡眠/唤醒、壁纸模式快捷键、Shelf 模式、LibraryView 挂载、音乐空态占位、AgentPanel 紧凑模式、非 Tauri 优雅降级（音乐/天气/库中文错误提示）、点击聚集；修复唯一控制台错误 favicon.ico 404（index.html 内联 SVG data-URI 图标）；全量回归 pytest 2228 passed + vitest 1283 passed + tsc/vite build ✓；M32.29 修复唤醒无响应 P0（VAD hangover/别名/ASR偏置/回声过滤/分级录音上限）；M32.30 灰原哀四场景情感风格（tts_styles 预设 + 采样参数 + ≤70字分段合成），前端 storeCoordinator 测试补齐 searchOnline/clearOnlineResults，全量回归 pytest 2524 + vitest 1302 全绿。2026-08-05 追加 M32.31：桌面待机视觉效果改为完全透明（用户需求）——IDLE_PARAMS dimFactor 0.8→0、particleShape sphere→null 释放为自由流场，待机不占任何视野；唤醒经 Space.morphTo 从屏幕四周汇聚成球；全量回归 pytest 2526 + vitest 1302 + tsc/vite build 全绿。"
+    },
+    {
+      "id": "M33",
+      "name": "nut-js 桌面自动化（Rust 原生）",
+      "status": "completed",
+      "subtasks": [
+        {
+          "id": "M33.1",
+          "name": "Rust 桌面自动化核心模块（enigo 集成：鼠标/键盘/截图）",
+          "status": "completed"
+        },
+        {
+          "id": "M33.2",
+          "name": "Tauri 命令接口（前端 IPC 调用）",
+          "status": "completed"
+        },
+        {
+          "id": "M33.3",
+          "name": "全局熔断机制（Cmd+Shift+Esc）",
+          "status": "completed"
+        },
+        {
+          "id": "M33.4",
+          "name": "操作日志和审计追踪",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "id": "M34",
+      "name": "办公自动化工作流（文档/邮件/日程 + 跨模块衔接）",
+      "status": "completed",
+      "started": "2026-08-06",
+      "completed": "2026-08-06",
+      "subtasks": [
+        {
+          "id": "M34.1",
+          "name": "omni_office 插件：SQLite 六表存储 + 文档版本控制 + 邮件收发/模板/自动回复 + 日程冲突检测/提醒 + 会议准备/邮件转日程工作流（19 个 office_* 工具）+ CLI + OmniPlugin 生命周期 + omni-hud office_tool Rust 桥接",
+          "status": "completed"
+        },
+        {
+          "id": "M34.2",
+          "name": "移动端日程桥接：events 表 completed/updated_at 幂等迁移 + CalendarManager update/delete/create 扩展 + schedule_bridge.py（UniHub 扁平模型 ↔ omni 区间模型互转，4 个 schedule_* 工具，共享 events 表）+ tools.py/manifest.json 登记（19→23 工具）",
+          "status": "completed"
+        },
+        {
+          "id": "M34.3",
+          "name": "性能优化：EnergyVAD 快路径（memoryview 零拷贝 + stride=2 + 平方域比较，-50%）+ 控制文件签名缓存（-88%）+ pre-roll deque O(1) + HUD idle 透明态渲染循环挂起/事件驱动唤醒（GPU/CPU 归零）+ ShelfView setShelfActive 保活接线 + Rust 侧事件驱动审计",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "pytest omni_office 192 passed / 全仓 pytest 2738 passed / UniHub jest 1027 passed / vitest 1313 passed (75 files) / cargo ok / tsc 0 errors / vite build ✓；M34.3 实测：VAD 10.76→5.38µs/帧 -50%，控制文件轮询 11.46→1.39µs -88%，idle 渲染挂起 GPU/CPU 归零；M34.2 修复：updatedAt 优先级 bug（秒/毫秒混用）、schedule_bridge _runtime 旧绑定导致测试误开真实库"
+    },
+    {
+      "id": "M35",
+      "name": "UniHub 移动端办公模块（文档 + 邮件）",
+      "status": "completed",
+      "started": "2026-08-06",
+      "completed": "2026-08-06",
+      "subtasks": [
+        {
+          "id": "M35.1",
+          "name": "utils/office.js：文档/邮件客户端（office_doc_* / office_email_* 经 OpenClaw /v1/tools/call 直调 + uni storage 本地缓存 unihub_office_docs/unihub_office_mails 各 100 上限 + mock 种子降级 + normalizeDoc/normalizeMail 宽容归一化）+ 92 TDD 用例",
+          "status": "completed"
+        },
+        {
+          "id": "M35.2",
+          "name": "store/office.js：Pinia 状态层（docs/inbox/loading/error + unreadCount/recentDocs 等 getters + fetchDocs/fetchInbox/createDoc/updateDoc/sendMail/markMailRead）+ 39 TDD 用例",
+          "status": "completed"
+        },
+        {
+          "id": "M35.3",
+          "name": "DocsCard.vue + MailCard.vue（Film Atelier 折叠卡片，纯 CSS 图标，点邮件自动已读）+ chat.vue 集成（下拉刷新联动）；顺带修复 M34 遗留 bug：ScheduleCard 未 import/注册导致运行时 ReferenceError",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "UniHub jest 26 suites / 1158 passed（新增 office 131：utils 92 + store 39，零回归）/ prettier 全过；改动均在 UniHub，主仓代码未触碰"
+    },
+    {
+      "id": "M36",
+      "name": "omni_office HTTP 工具桥（UniHub 远程同步真机打通）",
+      "status": "completed",
+      "started": "2026-08-06",
+      "completed": "2026-08-06",
+      "subtasks": [
+        {
+          "id": "M36.1",
+          "name": "http_server.py：stdlib 单线程 HTTPServer + ToolDispatcher 白名单分发 23 工具（office_* 19 + schedule_* 4）；POST /v1/tools/call + GET /v1/health；Bearer 鉴权（--token > env OMNI_OFFICE_HTTP_TOKEN > 开放）；错误映射 E_UNAUTHORIZED/E_TOOL_NOT_FOUND/E_INVALID_ARGS/E_INVALID_JSON/E_BODY_TOO_LARGE/E_INTERNAL；工具 JSON 信封解包为 {ok, result}；单线程刻意为之（sqlite3 check_same_thread 限制）",
+          "status": "completed"
+        },
+        {
+          "id": "M36.2",
+          "name": "CLI serve 子命令（--host/--port/--token/--fake，默认 0.0.0.0:4703，AI-Omni 47XX 端口段：4701 omni-hud / 4702 UniHub dev / 4703 本桥）",
+          "status": "completed"
+        },
+        {
+          "id": "M36.3",
+          "name": "test_http_server.py 23 TDD 用例（鉴权/分发/白名单/错误映射/端到端）；修复 sqlite3 跨线程 ProgrammingError（测试固件改为服务线程内建连 + Event 就绪同步）",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "全仓 pytest 2761 passed（基线 2738 + 新增 23）/ UniHub jest 1158 passed / vitest 1313 passed (75 files)，零回归；真机 curl 6 项端到端：无 token 401 / office_status / doc_create / schedule_create_event+list 扁模型往返 / 未知工具 404 全通过；UniHub schedule.js 与桥协议（date+time）核对一致，移动端零改动"
+    },
+    {
+      "id": "M38",
+      "name": "omni_wechat 微信插件（直连腾讯 iLink Bot API，收发一体）",
+      "status": "completed",
+      "started": "2026-08-07",
+      "completed": "2026-08-08",
+      "subtasks": [
+        {
+          "id": "M38.1",
+          "name": "插件骨架 + ilink.py ILinkClient：send_text/getupdates/notifystart/notifystop 直连 iLink；幽灵字段对齐官方协议（message_type=2 bot、message_state=2 finish、base_info channel_version=2.4.6）；client_id 修复为官方格式 prefix:{timestamp_ms}-{8hex}；httpx.TimeoutException→TimeoutError 翻译（长轮询超时是正常控制流，修复此前误判失败）；config.py/errors.py/accounts.py（token/sync_buf/context_token 按账户目录持久化）",
+          "status": "completed"
+        },
+        {
+          "id": "M38.2",
+          "name": "monitor.py MonitorLoop 长轮询接收（sync_buf 增量续拉、longpolling_timeout_ms 自适应、事件 wechat.message_received）+ tools.py 5 工具（wechat_send/status/set_target/start_listen/stop_listen）；_LoopThread 守护线程独立事件循环承载后台监听（同步 handler 契约）；186 个插件测试",
+          "status": "completed"
+        },
+        {
+          "id": "M38.3",
+          "name": "migrate.py 凭据迁移（OpenClaw 扁平布局→omni_wechat 账户目录，零损耗）+ openclaw01 凭据（token/sync_buf/context_token）迁移 + OpenClaw 微信通道停用备份（消除 token 竞争）；真机验证：接收 getupdates 200 OK 长轮询稳定，发送因 context_token 过期（7-24）prepare failed——iLink 反垃圾设计要求用户先私信 bot 获取新鲜 context_token（官方插件同现象，非 bug）；omni_openclaw openclaw_send_wechat 弃用（E_DEPRECATED + replacement=wechat_send）",
+          "status": "completed"
+        },
+        {
+          "id": "M38.4",
+          "name": "全量回归 + STATE.json/TEST_LOG.md M38 条目",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "全仓 pytest 2947 passed（omni_wechat 186 / omni_openclaw 177，零回归）；omni-hud vitest 1313 passed（75 files）防回归确认（本里程碑未触碰前端）；真机：openclaw01 接收链路 getupdates 长轮询 200 OK 稳定运行；2026-08-08 收发全链路闭环验证通过（用户私信 bot → 监听进程收到并刷新 context_token → wechat_send 回复 200 OK）"
+    },
+    {
+      "id": "M39",
+      "name": "AI-OMNI 演示视频（demo-video Remotion 项目）：全场景成片 + 活跃态截图链路",
+      "status": "completed",
+      "started": "2026-08-09",
+      "completed": "2026-08-09",
+      "subtasks": [
+        {
+          "id": "M39.1",
+          "name": "Remotion 项目骨架（demo-video/：Root.tsx/Demo.tsx/remotion.config.ts，1920x1080@30fps，Film Atelier 暗房基调）+ ParticleConverge 粒子汇聚开场动画（130 粒子三次缓动向主视觉球汇聚，呼应 M32.31 桌面待机语义）",
+          "status": "completed"
+        },
+        {
+          "id": "M39.2",
+          "name": "六场景编排（开场粒子/唤醒声井/实时字幕/音乐 Dock/主题切换/思考态）+ ShotScene 截图卡组件（kicker + 说明文字 + ken-burns 运镜），duration 1290→1770 帧（59s）",
+          "status": "completed"
+        },
+        {
+          "id": "M39.3",
+          "name": "omni-hud 调试注入链路：musicStore.debugSetPlayerState / lyricsStore.debugSetLyrics（接口+实现+__omniDebug 暴露，生产路径不调用）+ App.tsx subtitle 控制入口；Playwright 脚本 .capture-shots.mjs 自动注入播放中状态/同步歌词/实时字幕并重拍 03-well-caption-card / 04-music-dock 活跃态截图",
+          "status": "completed"
+        },
+        {
+          "id": "M39.4",
+          "name": "全片渲染 out/ai-omni-demo.mp4（25.5MB / 1770 帧）+ 抽帧验证；修复 Remotion 渲染多并发开页失败（--concurrency=1 规避 localhost:3000 no response）；seedance 动态开场因 ARK_API_KEY 未配置暂缓（ParticleConverge 本地动画已满足叙事）",
+          "status": "completed"
+        },
+        {
+          "id": "M39.5",
+          "name": "回归：全仓 pytest 3017 passed；omni-hud vitest 1315 passed（75 files）+ tsc --noEmit 零错误；STATE.json/TEST_LOG.md M39 条目",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "全仓 pytest 3017 passed；omni-hud vitest 1315 passed（75 files）；tsc --noEmit 零错误；demo-video Remotion 渲染 1770/1770 帧成功（out/ai-omni-demo.mp4 25.5MB，抽帧验证六场景构图正确）"
+    },
+    {
+      "id": "M40",
+      "name": "演示视频配音版：雪莉旁白（IndexTTS2 集群服务）+ 暗房氛围底乐 + Remotion 混轨成片",
+      "status": "completed",
+      "started": "2026-08-09",
+      "completed": "2026-08-09",
+      "subtasks": [
+        {
+          "id": "M40.1",
+          "name": "TDD 测试先行：tests/unit/test_demo_voiceover.py（8 段参数化校验 WAV 存在/PCM16 22050Hz/时长≤场景预算/非静音峰值守卫 + 时间轴连续性=1770 帧）+ demo-video/scripts/voiceover_script.py 单一数据源（文案↔场景↔VOICEOVER_OFFSET_S=0.6s），红灯确认",
+          "status": "completed"
+        },
+        {
+          "id": "M40.2",
+          "name": "demo-video/scripts/gen_voiceover.py（stdlib multipart POST /tts，无损落盘，--force/--only；采样参数对齐 omni_voice 后端 emo_alpha 0.8/top_p 0.75/temperature 0.65）→ IndexTTS2（Workstation :9200 雪莉默认音色）一次生成 8 段旁白（3.45s–6.27s 全部落入场景预算，scene-08 5.05s/预算 5.1s 极限卡位），9 项测试转绿",
+          "status": "completed"
+        },
+        {
+          "id": "M40.3",
+          "name": "ffmpeg 合成 59s 暗房氛围底乐 bgm-darkroom.mp3（分层正弦 drone 55/82.4/110/164.8/329.6Hz + 0.06Hz 呼吸 LFO + 700Hz 低通 + 首尾 2.5s/3.5s 淡入淡出，128k 923KB）",
+          "status": "completed"
+        },
+        {
+          "id": "M40.4",
+          "name": "Demo.tsx 混轨：ShotScene 新增 vo prop（Sequence from+VOICEOVER_DELAY=18 帧全局定位）+ 开场/结尾直挂 Audio + BGM 全片 volume=0.32 垫底；tsc --noEmit + eslint 零错误（顺手移除未使用的 FPS 常量）",
+          "status": "completed"
+        },
+        {
+          "id": "M40.5",
+          "name": "有声版渲染 out/ai-omni-demo.mp4（1770/1770 帧，25.5MB；--browser-executable 系统 Chrome + --concurrency=1 沿用 M39 排障结论）；ffprobe 验证 AAC 48kHz 立体声 59.05s；volumedetect 混音验证：旁白段 mean -19.9dB/max -5.0dB vs BGM-only 间隙 -30.3dB（人声突出底乐克制）；40s 抽帧音乐 Dock 画面无损",
+          "status": "completed"
+        },
+        {
+          "id": "M40.6",
+          "name": "回归：全仓 pytest 3026 passed（3017+9）；omni-hud vitest 1315 passed（75 files）；demo-video tsc+eslint 零错误；STATE.json/TEST_LOG.md M40 条目",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "全仓 pytest 3026 passed（新增 9 项配音资产校验）；omni-hud vitest 1315 passed（75 files）；demo-video tsc --noEmit + eslint 零错误；Remotion 渲染 1770/1770 帧，AAC 48kHz 59.05s，旁白/BGM 混音 -19.9dB vs -30.3dB"
+    },
+    {
+      "id": "M41",
+      "name": "演示视频粒子效果重写：SVG 光晕 + 景深 + 连线 + 明星粒子 + 汇聚拉伸",
+      "status": "completed",
+      "started": "2026-08-09",
+      "completed": "2026-08-09",
+      "subtasks": [
+        {
+          "id": "M41.1",
+          "name": "ParticleConverge 重写：div 实心圆点 → SVG 多效果复合层（径向渐变光晕 radialGradient × 4 色 + 远/中/近三层景深 feGaussianBlur + 相邻粒子连线（低透明度、汇聚后自动断开）+ 明星粒子十字光斑（近层 8% 概率）+ ease-out overshoot 汇聚 + 慢速正弦呼吸（振幅 2.5px、周期 ~3s））",
+          "status": "completed"
+        },
+        {
+          "id": "M41.2",
+          "name": "TDD 测试 tests/unit/test_demo_particles.py（13 项）：粒子数 ≤300 / 调色板 ≤4 色 / 三层景深存在 / 光晕渐变定义 / 连线元素+进度衰减 / 文字安全区 / 汇聚时长 ≥30 帧 / 呼吸振幅 ≤5px / overshoot ≤0.1 / 无高饱和彩虹色，全部转绿",
+          "status": "completed"
+        },
+        {
+          "id": "M41.3",
+          "name": "Remotion 渲染 out/ai-omni-demo-v2.mp4（1770/1770 帧，26.5MB）；抽帧验证 frame 30/80 光晕+景深+明星粒子+连线效果正确",
+          "status": "completed"
+        },
+        {
+          "id": "M41.4",
+          "name": "回归：全仓 pytest 22 passed（test_demo_particles 13 + test_demo_voiceover 9）；demo-video tsc --noEmit 零错误",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "全仓 pytest 22 passed（新增 13 项粒子约束校验）；demo-video tsc --noEmit 零错误；Remotion 渲染 1770/1770 帧成功（out/ai-omni-demo-v2.mp4 26.5MB）"
+    },
+    {
+      "id": "M42",
+      "name": "演示视频主视觉重制：hero-particles-v2（GenerateImage 2560x1440 无红偏/无水印裁切位）+ Studio 浏览器验证 + outro 文案同步",
+      "status": "completed",
+      "started": "2026-08-10",
+      "completed": "2026-08-10",
+      "subtasks": [
+        {
+          "id": "M42.1",
+          "name": "seedance 动态开场确认仍阻塞（本地无 ARK_API_KEY 且 Seedance 插件未注册 MCP server，GenerateVideo 工具当前会话不可用）；改道 GenerateImage 重制主视觉——旧图 hero-particles.jpg 右上残留红色生成瑕疵色块，为「粒子效果太差」观感的另一成因",
+          "status": "completed"
+        },
+        {
+          "id": "M42.2",
+          "name": "GenerateImage 生成 hero-particles-v2.jpg（2560x1440，Film Atelier 暗房：琥珀微粒汇聚光球位于 62%/42% 与代码粒子汇聚中心精确对齐，青绿点缀，无红偏；生成服务要求 ≥3686400 像素故 1920x1080 被拒改 2560x1440；右下水印沿用 Hero scale 1.13-1.2 + transformOrigin 25% 15% 裁切）",
+          "status": "completed"
+        },
+        {
+          "id": "M42.3",
+          "name": "agent-browser 验证 Remotion Studio（localhost:3000）：Studio 加载 AIOMNI 合成，预览显示标题/59s 时间轴/bgm 轨，资产树识别 hero-particles-v2.jpg；截图因 WebGL 重页 30s 桥接超时（沿用 M39 结论，remotion still 抽帧为主要验证手段）",
+          "status": "completed"
+        },
+        {
+          "id": "M42.4",
+          "name": "outro 文案 M0–M39→M0–M41；全片渲染 out/ai-omni-demo-v3.mp4（1770/1770 帧，31.5MB）；抽帧 frame 80（光球与代码粒子融合、水印不可见）/ frame 1670（outro 正确）；回归 pytest 22 passed + tsc 零错误",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "全仓 pytest 22 passed；demo-video tsc --noEmit 零错误；Remotion 渲染 1770/1770 帧成功（out/ai-omni-demo-v3.mp4 31.5MB），frame 80/1670 抽帧验证新主视觉与代码粒子层融合正确"
+    },
+    {
+      "id": "M43",
+      "name": "演示视频中场场景重捕：活跃态素材替换近黑 idle 空屏（Playwright 状态注入 ×4 场景）+ v4 全片渲染",
+      "status": "completed",
+      "started": "2026-08-10",
+      "completed": "2026-08-10",
+      "subtasks": [
+        {
+          "id": "M43.1",
+          "name": "定位根因：01/02/04/05 四张旧素材粒子场处于 idle 透明态（fieldState IDLE_PARAMS dimFactor:0），视频中呈近全黑空屏；决策注入活跃语音态重捕",
+          "status": "completed"
+        },
+        {
+          "id": "M43.2",
+          "name": "omni-hud/.capture-shots.mjs 增强：注入 wake_listening/thinking/speaking 三语音态 + 播放中 Dock + 同步歌词（替代「非 Tauri 环境」错误卡，含 fetchLyrics 失败落定后的兜底再注入）+ localStorage 预设 safelight-red 主题；捕获 01-voice-active / 02-well-ring-hover / 04-music-dock / 05-theme-safelight-red 四张活跃态素材",
+          "status": "completed"
+        },
+        {
+          "id": "M43.3",
+          "name": "Demo.tsx 语音助手场景改引 01-voice-active.png（弃 01-initial-idle）；新增 tests/unit/test_demo_assets.py 10 例（活跃资产引用断言 + 素材存在且 >300KB 防近黑回归）",
+          "status": "completed"
+        },
+        {
+          "id": "M43.4",
+          "name": "全片渲染 out/ai-omni-demo-v4.mp4（1770/1770 帧，42.3MB / 59s）；抽帧 frame 500/750/1200/1470 验证四中场场景粒子球可见 + Dock 播放中 + 歌词高亮；回归 pytest 32 passed + tsc 零错误",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "全仓 pytest 32 passed（粒子 13 + 配音 9 + 素材 10）；demo-video tsc --noEmit 零错误；Remotion 渲染 1770/1770 帧成功（out/ai-omni-demo-v4.mp4 42.3MB），frame 750 抽帧确认 thinking 粒子球 + 播放中 Dock + 歌词高亮同框"
+    },
+    {
+      "id": "M44",
+      "name": "演示视频 outro 数据同步护栏：字幕与 STATE.json 强制一致（防过时回归测试 ×2）+ v5 全片渲染",
+      "status": "completed",
+      "started": "2026-08-10",
+      "completed": "2026-08-10",
+      "subtasks": [
+        {
+          "id": "M44.1",
+          "name": "发现 outro 字幕数据过时（M0–M41 / 3000+ 测试，实际 M43 / 4364）；seedance 动态开场复查仍阻塞（env/shell rc/项目 .env 均无 ARK_API_KEY/MODEL_VIDEO_API_KEY/MODEL_AGENT_API_KEY，skill 与 MCP 同源）",
+          "status": "completed"
+        },
+        {
+          "id": "M44.2",
+          "name": "TDD 红：test_demo_assets.py 新增 TestOutroStatsSync 2 例——outro 里程碑上界必须等于 STATE.json current_milestone、测试数必须 ≥4000 且按百取整；先红（M0–M41 / 3000+ 双失败）后绿",
+          "status": "completed"
+        },
+        {
+          "id": "M44.3",
+          "name": "Demo.tsx outro subtitle → M0–M44 · 4300+ 自动化测试（3049→3051 pytest + 1315 vitest = 4366，按百取整 4300+）；确立规则：每次里程碑 bump 必须同步 outro 文案（护栏测试强制），重渲染按需",
+          "status": "completed"
+        },
+        {
+          "id": "M44.4",
+          "name": "全量回归：pytest 3051 passed + vitest 1315 passed + demo-video/omni-hud tsc 双零错误；全片渲染 out/ai-omni-demo-v5.mp4（1770 帧）",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "pytest 3051 passed（新增 outro 同步护栏 2 例：里程碑 = STATE.json current_milestone、测试数 ≥4000 按百取整）；vitest 1315 passed；demo-video + omni-hud tsc 零错误；v5 渲染 1770/1770 帧"
+    },
+    {
+      "id": "M45",
+      "name": "修复 Remotion 渲染环境（系统 Chrome 151 并发池不兼容 → 手动部署 headless shell 149）+ v5 实际渲染落地",
+      "status": "completed",
+      "started": "2026-08-10",
+      "completed": "2026-08-10",
+      "subtasks": [
+        {
+          "id": "M45.1",
+          "name": "根因定位：v4(21:05) 后系统 Chrome 自动更新至 151，与 @remotion/renderer 4.0.507 的 puppeteer-core 池化 goto 不兼容——selectComposition 单页成功，8 页并发池报 \"Visited localhost:3000/index.html but got no response\"；逐一排除僵尸 Chrome 进程（清 9 个后仍现）、macOS 系统代理（无头 Chrome 直连 localhost 实测正常）、HTTP_PROXY env（env -u 后仍现）三假设",
+          "status": "completed"
+        },
+        {
+          "id": "M45.2",
+          "name": "发现 npx remotion browser ensure 下载停滞：Node 24 undici 默认不走 HTTP_PROXY env，直连 Google IPv6 挂起（lsof 证实 ESTABLISHED 但零落盘）",
+          "status": "completed"
+        },
+        {
+          "id": "M45.3",
+          "name": "修复：curl（走代理 19.9MB/s）手动下载 chrome-headless-shell-mac-arm64.zip 149.0.7790.0 → 解压至 node_modules/.remotion/chrome-headless-shell/mac-arm64/ + 写 VERSION 文件；渲染命令去掉 --browser-executable 改用 Remotion 实测浏览器",
+          "status": "completed"
+        },
+        {
+          "id": "M45.4",
+          "name": "v5 实际渲染成功：1770/1770 帧，41.4MB / 59.05s / AAC 48kHz 立体声；抽帧验证 outro「M0–M44 · 4300+ 自动化测试」字幕与语音场景粒子球 + Dock 播放中 + 歌词高亮",
+          "status": "completed"
+        },
+        {
+          "id": "M45.5",
+          "name": "按 M44.3 同步规则 bump outro → M0–M45 并重渲染 v6（1770/1770 帧，41.4MB，抽帧验证字幕 M0–M45·4300+）；TestOutroStatsSync 双例保持绿",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "TestOutroStatsSync 2 例绿（M45 同步后，素材+护栏共 12 例 passed）；v5 渲染 1770/1770 帧（41.4MB，实际落地）；v6 渲染 1770/1770 帧（41.4MB，M0–M45 字幕抽帧验证）"
+    },
+    {
+      "id": "M46",
+      "name": "粒子系统重做：程序化 Canvas 2D 引擎（确定性纯函数帧驱动）+ 五行为全集 + Demo.tsx 全场景接入",
+      "status": "completed",
+      "started": "2026-08-11",
+      "subtasks": [
+        {
+          "id": "M46.1",
+          "name": "TDD 红：tests/unit/test_demo_particles.py 42 例结构护栏（确定性/调色板≤6/预算≤300·≤1.2/文字安全区/防频闪/行为全集/Demo 集成/渲染性能），初始 17 failed + 25 errors",
+          "status": "completed"
+        },
+        {
+          "id": "M46.2",
+          "name": "particles/engine.ts：mulberry32 种子 RNG + seedParticle 参数组派生 + SpriteCache 离屏渐变精灵 + drawParticles（lighter 叠加 + 三层景深散景 + 远中层连线 + 明星十字光斑）；预算常量 MAX_PARTICLES=300 / SPEED_LIMIT=1.2 / CONNECTION_MAX_DIST=140 / TWINKLE_AMPLITUDE=0.08 / TWINKLE_PERIOD_FRAMES=54",
+          "status": "completed"
+        },
+        {
+          "id": "M46.3",
+          "name": "particles/behaviors.ts 五行为纯函数全集：nebula（慢漂+边缘回绕+SPEED_LIMIT 钳制）、converge（螺旋汇聚+easeOutCubic+末段 overshoot+聚后缓慢自转）、orbit（5 条 tilt 倾角轨道球+深度投影明暗）、ripple（lane 错峰环带自中心向外扩散+正弦生灭包络，过场显影）、scatter（缓出柔和弥散，非爆炸）",
+          "status": "completed"
+        },
+        {
+          "id": "M46.4",
+          "name": "ParticleCanvas.tsx（useCurrentFrame+useLayoutEffect 同步绘制，f(frame) 纯函数并行 seek 安全）+ Demo.tsx 重构：静态 hero 与旧 SVG ParticleConverge 移除，intro 星云+汇聚成球、6 个截图场景过场涟漪、outro 星云+轨道球；TITLE/CAPTION 双文字安全区；outro 按 M44.3 规则 bump 至 M0–M46",
+          "status": "completed"
+        },
+        {
+          "id": "M46.5",
+          "name": "hero-particles.jpg / hero-particles-v2.jpg 退役删除；test_demo_assets.py hero 存在性测试改为「intro 粒子驱动」断言",
+          "status": "completed"
+        }
+      ],
+      "test_summary": "tests/unit/test_demo_particles.py 42 例全绿（TDD 红→绿）；test_demo_assets.py 12 例绿（含 intro 粒子驱动断言 + outro M0–M46 同步护栏）；tsc --noEmit 零错误；全量 pytest 3080 passed；v7 渲染 1770/1770 帧（24MB），9 帧抽验：intro 螺旋汇聚成球/中场星云底不压截图/过场涟漪/outro 轨道球 + 文字安全区均无遮挡"
     }
   ],
   "constraints": {
@@ -1494,9 +2020,9 @@
     "opentalking": "/Users/wangzhenyu/Desktop/ALLProject/opentalking/ (独立部署的数字人渲染服务资产，M6 起接入，Apache 2.0)"
   },
   "model_backends": {
-    "primary_chat": "OpenClaw 网关 http://localhost:18789/v1 (OpenAI 兼容，LLM 默认 qwen3.6-uncensored；2026-07-28 起 AI-Omni 不再加载本地推理模型，统一走网关)",
+    "primary_chat": "OpenClaw 网关 http://localhost:18789/v1 (OpenAI 兼容，LLM 默认 Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16，served-model-name 别名为 qwen3.6-uncensored；2026-07-28 起 AI-Omni 不再加载本地推理模型，统一走网关)",
     "asr_tts": "OpenClaw 网关 http://localhost:18789/v1 (/audio/transcriptions whisper-1 + /audio/speech alloy，OpenAI 兼容；VAD 为纯 Python 能量检测零依赖)",
-    "fallback_remote": "http://192.168.71.127:8000/v1 (Qwen3.6-uncensored, SGLang, 32K ctx, Workstation Docker, 经 llm_endpoint 配置切换)",
+    "fallback_remote": "http://192.168.71.127:8000/v1 (Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16, vLLM, 32K ctx, Workstation GPU3, served-model-name=qwen3.6-uncensored, 经 llm_endpoint 配置切换)",
     "fallback_reasoning": "http://spark01:8000/v1 (Euryale 70B / Qwen3-Next-80B-A3B, vLLM→SGLang 升级中)",
     "multimodal": "http://mac-studio:52415 (K2.7 Code / GLM-5.2-fp8, EXO 集群)",
     "router": "http://spark01:4000 (LiteLLM, OpenAI 兼容)"

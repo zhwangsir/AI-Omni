@@ -102,6 +102,8 @@ class TestVoiceEndToEnd:
         # -- 3. 唤醒触发完整一轮：事件按序上总线
         assert comps["tts"].synthesized.wait(timeout=5), "第一轮 TTS 未完成"
         assert _wait_until(lambda: "voice.reply" in ctx.event_bus.types())
+        # 唤醒应答与 Agent 回复的 TTS 在 voice.reply 事件后异步完成，需等待两者都写入
+        assert _wait_until(lambda: len(comps["tts"].texts) >= 2, timeout=5), "Agent 回复 TTS 未完成"
         transcript_texts = [p["text"] for p in ctx.event_bus.payloads("voice.transcript")]
         assert "Omni 你好" in transcript_texts
         assert comps["agent"].messages[0] == "Omni 你好"

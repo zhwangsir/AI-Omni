@@ -98,6 +98,89 @@ class TestTaskTracker:
             await task
         assert len(tracker) == 0
 
+    @pytest.mark.asyncio
+    async def test_on_task_exception_callback_failure_isolated(self) -> None:
+        """on_task_exception 回调自身抛异常时被吞掉，不影响 tracker 清理。"""
+        tracker = TaskTracker()
+
+        def bad_callback(task: asyncio.Task[Any], exc: BaseException) -> None:
+            raise RuntimeError("callback boom")
+
+        tracker.on_task_exception = bad_callback
+
+        async def fail() -> None:
+            raise ValueError("task error")
+
+        task = create_tracked_task(tracker, fail())
+        await asyncio.sleep(0.05)
+
+        assert task.done()
+        assert isinstance(task.exception(), ValueError)
+        assert len(tracker) == 0
+
+    @pytest.mark.asyncio
+    async def test_task_exception_without_callback_logged(self) -> None:
+        """未设置 on_task_exception 时异常走默认日志分支，tracker 正常清理。"""
+        tracker = TaskTracker()
+
+        async def fail() -> None:
+            raise ValueError("task error")
+
+        task = create_tracked_task(tracker, fail())
+        await asyncio.sleep(0.05)
+
+        assert task.done()
+        assert isinstance(task.exception(), ValueError)
+        assert len(tracker) == 0
+
+    @pytest.mark.asyncio
+    async def test_cancel_all_cancels_tracked_tasks(self) -> None:
+        """cancel_all 取消所有跟踪中的 Task 并自动清理。"""
+        tracker = TaskTracker()
+        started_count = 0
+
+        async def hang() -> None:
+            nonlocal started_count
+            started_count += 1
+            await asyncio.sleep(10)
+
+        tasks = [create_tracked_task(tracker, hang()) for _ in range(3)]
+        await asyncio.sleep(0.05)
+        assert started_count == 3
+        assert len(tracker) == 3
+
+        tracker.cancel_all()
+        for t in tasks:
+            with pytest.raises(asyncio.CancelledError):
+                await t
+        # done 回调经 loop.call_soon 排队，需让出一次事件循环才会执行清理
+        await asyncio.sleep(0)
+        assert len(tracker) == 0
+
+
+class TestCreateTrackedTaskEdges:
+    """create_tracked_task 的 loop 分支。"""
+
+    def test_non_running_loop_uses_ensure_future(self) -> None:
+        """目标 loop 未运行时经 ensure_future 创建，loop 驱动后正常完成。"""
+        tracker = TaskTracker()
+        loop = asyncio.new_event_loop()
+        completed: list[bool] = []
+        try:
+            async def worker() -> None:
+                completed.append(True)
+
+            task = create_tracked_task(tracker, worker(), loop=loop)
+            assert len(tracker) == 1
+
+            loop.run_until_complete(task)
+            assert completed == [True]
+            # 驱动一次 loop 让 done 回调执行移除
+            loop.run_until_complete(asyncio.sleep(0.01))
+            assert len(tracker) == 0
+        finally:
+            loop.close()
+
 
 class TestSafePublish:
     """safe_publish：锁外执行回调，避免死锁。"""
@@ -144,6 +227,46 @@ class TestSafePublish:
             safe_publish(bad_publish, "test.event", {"x": 1})
 
         await asyncio.sleep(0.05)
+
+    def test_no_running_loop_runs_synchronously(self) -> None:
+        """无运行中的事件循环时，safe_publish 经 asyncio.run 同步执行。"""
+        results: list[tuple[str, dict[str, Any]]] = []
+
+        async def publish(event_type: str, payload: dict[str, Any]) -> None:
+            results.append((event_type, payload))
+
+        safe_publish(publish, "evt.sync", {"k": 1})
+        assert results == [("evt.sync", {"k": 1})]
+
+    @pytest.mark.asyncio
+    async def test_running_loop_with_tracker(self) -> None:
+        """运行循环 + tracker：Task 被跟踪，完成后自动移除。"""
+        tracker = TaskTracker()
+        results: list[str] = []
+
+        async def publish(event_type: str, payload: dict[str, Any]) -> None:
+            results.append(event_type)
+
+        safe_publish(publish, "evt.tracked", {}, tracker=tracker)
+        assert len(tracker) == 1
+
+        await asyncio.sleep(0.05)
+        assert results == ["evt.tracked"]
+        assert len(tracker) == 0
+
+    def test_explicit_non_running_loop_runs_until_complete(self) -> None:
+        """显式传入未运行的 loop：经 run_until_complete 同步执行。"""
+        results: list[tuple[str, dict[str, Any]]] = []
+
+        async def publish(event_type: str, payload: dict[str, Any]) -> None:
+            results.append((event_type, payload))
+
+        loop = asyncio.new_event_loop()
+        try:
+            safe_publish(publish, "evt.loop", {"x": 2}, loop=loop)
+            assert results == [("evt.loop", {"x": 2})]
+        finally:
+            loop.close()
 
 
 class TestSyncToAsyncPublish:

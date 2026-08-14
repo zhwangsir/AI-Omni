@@ -29,7 +29,7 @@ class OpenClawConfig:
 
     # LLM 端点（四层 AICG）
     llm_l1_endpoint: str = "http://192.168.71.127:8000/v1"
-    llm_l1_model: str = "qwen3.6-uncensored"
+    llm_l1_model: str = "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
 
     llm_l2_l3_endpoint: str = "http://192.168.71.109:52415/v1"
 

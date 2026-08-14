@@ -17,8 +17,10 @@ extern crate objc;
 use objc::msg_send;
 use serde::{Deserialize, Serialize};
 
+pub mod desktop;
 pub mod lyrics;
 pub mod music;
+pub mod office;
 pub mod status;
 pub mod utils;
 pub mod voice;
@@ -406,6 +408,7 @@ pub fn ipc_configured<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::B
         .manage(std::sync::Arc::new(std::sync::Mutex::new(status::SystemMonitor::new())))
         .manage(zones::shared_zones())
         .manage(shared_window_mode())
+        .manage(desktop::shared_desktop_automation())
         .invoke_handler(tauri::generate_handler![
             set_click_through,
             set_always_on_top,
@@ -419,6 +422,20 @@ pub fn ipc_configured<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::B
             music::music_tool,
             lyrics::lyrics_tool,
             weather::weather_tool,
+            office::office_tool,
+            desktop::desktop_mouse_move,
+            desktop::desktop_mouse_click,
+            desktop::desktop_mouse_double_click,
+            desktop::desktop_mouse_drag,
+            desktop::desktop_type_text,
+            desktop::desktop_press_key,
+            desktop::desktop_key_combination,
+            desktop::desktop_screenshot,
+            desktop::desktop_trigger_circuit_breaker,
+            desktop::desktop_reset_circuit_breaker,
+            desktop::desktop_is_circuit_breaker_active,
+            desktop::desktop_get_logs,
+            desktop::desktop_clear_logs,
         ])
 }
 
@@ -430,6 +447,7 @@ pub fn run() {
     let zone_stop_handle_event = zone_stop_handle.clone();
 
     ipc_configured(tauri::Builder::default())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
             use tauri::Manager as _;
             let window = app
@@ -467,6 +485,13 @@ pub fn run() {
                     eprintln!("[omni-hud] 无法获取状态文件路径，保留 CLI 轮询兜底: {err}");
                 }
             }
+
+            // M33.3：注册全局熔断快捷键（Cmd+Shift+Esc）
+            let desktop_state = app.state::<desktop::SharedDesktopAutomation>().inner().clone();
+            if let Err(err) = desktop::register_circuit_breaker_shortcut(&app.handle(), desktop_state) {
+                eprintln!("[omni-hud] 全局熔断快捷键注册失败: {err}");
+            }
+
             Ok(())
         })
         .on_window_event(move |window, event| {

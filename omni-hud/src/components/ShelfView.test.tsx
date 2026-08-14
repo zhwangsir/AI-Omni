@@ -23,14 +23,17 @@ function makeMockSpace(shelfHost: unknown | null = null): {
   space: Space;
   getShelfHost: ReturnType<typeof vi.fn>;
   setMood: ReturnType<typeof vi.fn>;
+  setShelfActive: ReturnType<typeof vi.fn>;
 } {
   const getShelfHost = vi.fn(() => shelfHost);
   const setMood = vi.fn();
+  const setShelfActive = vi.fn();
   const space = {
     getShelfHost,
     setMood,
+    setShelfActive,
   } as unknown as Space;
-  return { space, getShelfHost, setMood };
+  return { space, getShelfHost, setMood, setShelfActive };
 }
 
 /** 构造 mock libraryStore：返回固定 playlists。 */
@@ -234,6 +237,49 @@ describe("ShelfView 场景模式挂载（M20.6）", () => {
       fireEvent.contextMenu(shelfView);
     });
     expect(hudStore.getState().fieldMode).toBe("space");
+  });
+
+  it("M34.3：shelf 挂载调 setShelfActive(true) 保活，切回 space 调 false 恢复挂起", () => {
+    const hudStore = createHudStore();
+    const { host } = makeFakeShelfHost();
+    const { space, setShelfActive } = makeMockSpace(host);
+    const spaceRef: MutableRefObject<Space | null> = { current: space };
+    const libraryStore = makeMockLibraryStore([]);
+
+    hudStore.setFieldMode("shelf");
+    render(
+      <ShelfView
+        spaceRef={spaceRef}
+        hudStore={hudStore}
+        libraryStore={libraryStore}
+      />,
+    );
+    expect(setShelfActive).toHaveBeenLastCalledWith(true);
+
+    // 切回 space → 取消保活
+    act(() => hudStore.setFieldMode("space"));
+    expect(setShelfActive).toHaveBeenLastCalledWith(false);
+  });
+
+  it("M34.3：shelf 激活中组件卸载，清理路径调 setShelfActive(false)", () => {
+    const hudStore = createHudStore();
+    const { host } = makeFakeShelfHost();
+    const { space, setShelfActive } = makeMockSpace(host);
+    const spaceRef: MutableRefObject<Space | null> = { current: space };
+    const libraryStore = makeMockLibraryStore([]);
+
+    hudStore.setFieldMode("shelf");
+    const { unmount } = render(
+      <ShelfView
+        spaceRef={spaceRef}
+        hudStore={hudStore}
+        libraryStore={libraryStore}
+      />,
+    );
+    expect(setShelfActive).toHaveBeenLastCalledWith(true);
+
+    unmount();
+    expect(setShelfActive).toHaveBeenLastCalledWith(false);
   });
 
   it("libraryStore playlists 变化时 setCards 被调用（cardCount 更新）", () => {

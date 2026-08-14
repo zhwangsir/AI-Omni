@@ -4,7 +4,7 @@
 - :class:`ToolCallRequest` ：单次工具调用请求（id / name / arguments）
 - :class:`AgentBridge`    ：抽象接口 ``chat(text) -> str`` + ``chat_with_tools`` 可选能力
 - :class:`LiteLLMBridge`  ：OpenAI 兼容端点（仅用 urllib 标准库，无第三方依赖），
-  统一指向 OpenClaw 网关（:18789），AI-Omni 不自行加载本地模型（AGENTS.md §四）
+  默认指向 Workstation Nemotron vLLM（:8000/v1），AI-Omni 不自行加载本地模型（AGENTS.md §四）
 - :class:`FakeAgentBridge`：可编程 fake（测试/演示用），支持 tool_calls 模拟
 
 M8 扩展：LiteLLMBridge 新增 ``chat_messages(messages)`` 支持发送完整消息列表。
@@ -25,6 +25,43 @@ from typing import Any
 from .errors import VoiceError
 
 logger = logging.getLogger(__name__)
+
+_THINK_OPEN = "<think>"
+_THINK_CLOSE = "</think>"
+
+
+def strip_think_block(content: str) -> str:
+    """剥离 reasoning 模型（Nemotron Reasoning 等）输出的 ``<think>`` 推理块。
+
+    真机事故（2026-07-30）：voice-status.json 的 reply 写入整段英文推理过程，
+    TTS 把推理逐字朗读。剥离集中在响应解析层，保证下游（对话历史 / TTS /
+    状态文件）全部干净。
+
+    规则：
+    - 闭合块 ``<think>...</think>`` 全部移除（可出现多个）；
+    - 孤立 ``</think>``（vLLM 把起始标签作为特殊 token 吃掉，content 里只剩
+      推理内容 + 闭合标签，7月30日真机泄漏即此形态）：开头到首个闭合标签
+      全部丢弃；
+    - 未闭合 ``<think>``（流式截断 / 模型异常）：从自身到末尾保守丢弃，
+      宁缺毋滥——推理内容绝不进 TTS；
+    - 无 think 块时原样返回。
+    """
+    if not content:
+        return content
+    text = content
+    # 闭合块全部移除；遇未闭合 <think>（start 之后找不到闭合标签）从自身到末尾
+    # 丢弃并终止循环——end == -1 时继续拼接会让字符串无限增长（死循环事故）。
+    while _THINK_OPEN in text:
+        start = text.find(_THINK_OPEN)
+        end = text.find(_THINK_CLOSE, start)
+        if end == -1:
+            text = text[:start]
+            break
+        text = text[:start] + text[end + len(_THINK_CLOSE) :]
+    # 孤立 </think>：开头到首个闭合标签全部丢弃
+    if _THINK_CLOSE in text:
+        text = text[text.find(_THINK_CLOSE) + len(_THINK_CLOSE) :]
+    return text.strip()
 
 
 @dataclass
@@ -131,7 +168,11 @@ class LiteLLMBridge(AgentBridge):
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                 body = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
-            raise VoiceError(f"LLM 请求失败 HTTP {exc.code}") from exc
+            code = exc.code
+            # M32.23：关闭异常持有的底层响应资源（Python 3.14 起未关闭触发
+            # ResourceWarning；真实运行时对应未释放的 socket 连接）。
+            exc.close()
+            raise VoiceError(f"LLM 请求失败 HTTP {code}") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise VoiceError(f"LLM 请求失败: {exc}") from exc
         try:
@@ -148,6 +189,10 @@ class LiteLLMBridge(AgentBridge):
             raise VoiceError(f"LLM 返回结构异常: {data!r}") from exc
 
         content = message.get("content")
+        # reasoning 模型（Nemotron Reasoning 等）推理块剥离：只保留最终回复，
+        # None（tool_call 场景）不处理。
+        if content is not None:
+            content = strip_think_block(content)
         tool_calls_raw = message.get("tool_calls") or []
         tool_calls: list[ToolCallRequest] = []
         for tc in tool_calls_raw:

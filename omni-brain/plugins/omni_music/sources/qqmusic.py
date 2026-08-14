@@ -91,6 +91,9 @@ class QQMusicSource(MusicSource):
         self._cookies: dict[str, str] = dict(cookies) if cookies else {}
         self._http_client: Any = http_client
         self._base_url: str = base_url.rstrip("/")
+        #: 客户端所有权标记：注入的外部客户端为 False（调用方管理生命周期）；
+        #: ``_get_client()`` 惰性创建的客户端为 True（本实例负责 close）
+        self._owns_client: bool = False
         #: 调用计数器（测试断言用），每次发请求累加
         self.call_count: int = 0
 
@@ -114,9 +117,36 @@ class QQMusicSource(MusicSource):
         except ImportError:
             return None
         client = httpx.Client(timeout=10.0, follow_redirects=True)
-        # 缓存以便后续复用
+        # 缓存以便后续复用；惰性创建的客户端归本实例所有（close 时负责释放）
         self._http_client = client
+        self._owns_client = True
         return client
+
+    # ------------------------------------------------------------------
+    # 生命周期：close / 上下文管理器
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """关闭自有 HTTP 客户端，释放底层连接池。
+
+        所有权语义：仅关闭 ``_get_client()`` 惰性创建的自有客户端；
+        构造时注入的外部 ``http_client`` 由调用方管理，本方法不触碰。
+        幂等：可重复调用；close 后 ``_http_client`` 置 ``None``，
+        后续 ``_get_client()`` 会重新创建新客户端。
+        """
+        client = self._http_client
+        if client is not None and self._owns_client:
+            client.close()
+            self._http_client = None
+            self._owns_client = False
+
+    def __enter__(self) -> QQMusicSource:
+        """进入 with 块，返回自身（配合 :meth:`close` 自动释放连接池）。"""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """退出 with 块时调用 :meth:`close`。"""
+        self.close()
 
     def _request(self, params: dict) -> dict | None:
         """统一请求封装；任何异常返回 ``None``。

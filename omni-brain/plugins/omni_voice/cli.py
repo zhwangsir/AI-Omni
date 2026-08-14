@@ -1,7 +1,7 @@
 """omni_voice 命令行入口：``python -m omni_voice <子命令>``。
 
 CLI 是 tools 层的薄壳：解析参数 → 调用 tools → 打印 JSON → 映射退出码
-（ok:true → 0，ok:false → 1；参数解析错误由 argparse 以 2 退出）。
+（ok:true → 0，ok:false → 1；参数解析错误返回 E_INVALID_PARAMS JSON 并退出 1）。
 
 子命令：
 
@@ -19,11 +19,12 @@ CLI 是 tools 层的薄壳：解析参数 → 调用 tools → 打印 JSON → �
 
 from __future__ import annotations
 
-import argparse
 import json
 import threading
 import time
 from typing import Any
+
+from omni_sdk.cli_utils import JsonErrorArgumentParser
 
 from . import tools
 
@@ -140,9 +141,9 @@ def _cmd_identity(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # 解析器
 # ---------------------------------------------------------------------------
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> JsonErrorArgumentParser:
     """构建 CLI 参数解析器。"""
-    parser = argparse.ArgumentParser(
+    parser = JsonErrorArgumentParser(
         prog="omni_voice",
         description="本地语音交互 MVP：唤醒 → VAD → ASR → LLM Agent → TTS",
     )

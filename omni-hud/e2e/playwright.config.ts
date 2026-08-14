@@ -41,7 +41,7 @@ export default defineConfig({
   webServer: {
     command: "pnpm dev",
     url: DEV_SERVER_URL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
     timeout: 60_000,
     stdout: "pipe",
     stderr: "pipe",

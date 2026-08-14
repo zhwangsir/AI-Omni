@@ -42,18 +42,19 @@ export interface AgentPanelProps {
 /**
  * 语音状态 → 状态指示器颜色（Film Atelier 暗房安全灯系，低饱和克制）。
  *
- * 取值与粒子调色板 / mood 对齐：idle=dim 灰、wake/recording=暖红蓝、
- * thinking=紫、speaking=绿、tool_using=橙。
+ * 取值与粒子调色板 / mood 对齐：idle=暗绿（在线）、wake/speaking=灰绿（响应中）、
+ * recording=灰红、transcribing=灰蓝、thinking=灰紫、tool_using=灰橙。
+ * 响应态保持低饱和但在深色背景上可辨，不使用高饱和 Tailwind 亮色（§六红线）。
  */
 const STATE_INDICATOR_COLOR: Record<VoicePipelineState, string> = {
-  idle: "#83878f",
-  wake_listening: "#5b8def",
-  follow_up_listening: "#5b8def",
-  recording: "#b04a3a",
-  transcribing: "#8b93a7",
-  thinking: "#9b6bd6",
-  tool_using: "#d99a4e",
-  speaking: "#6fb58a",
+  idle: "#5a6b5a",
+  wake_listening: "#7fb08a",
+  follow_up_listening: "#7fb08a",
+  recording: "#b07a72",
+  transcribing: "#7d97b8",
+  thinking: "#9a8ab0",
+  tool_using: "#b5a07d",
+  speaking: "#7fb08a",
 };
 
 /** 状态指示器缺省颜色（voice.state 为 null / 不可用时，与 idle 同灰）。 */
@@ -130,6 +131,7 @@ export function AgentPanel({ statusStore, agentStore }: AgentPanelProps): JSX.El
         <span
           data-testid="agent-panel-indicator"
           aria-hidden="true"
+          className={`agent-panel-indicator ${voice.state !== "idle" && voice.state !== null ? "agent-panel-indicator-active" : ""}`}
           style={{
             display: "inline-block",
             width: "8px",
@@ -138,7 +140,7 @@ export function AgentPanel({ statusStore, agentStore }: AgentPanelProps): JSX.El
             backgroundColor: indicatorColor,
             // 呼吸感：颜色变化时 240ms 过渡（克制，不高频抖动）。
             transition: "background-color 240ms ease-out",
-            boxShadow: `0 0 6px ${indicatorColor}66`,
+            boxShadow: `0 0 8px 2px ${indicatorColor}99`,
           }}
         />
         <span

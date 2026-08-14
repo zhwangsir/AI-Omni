@@ -28,9 +28,13 @@ M8 常驻助手：SPEAKING 完毕进入 FOLLOW_UP_LISTENING 续听窗口（默�
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
+from collections import deque
+from difflib import SequenceMatcher
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .agent_bridge import AgentBridge
@@ -128,18 +132,26 @@ class VoicePipeline:
         self._control_thread: threading.Thread | None = None
         #: 已消费的控制指令序号（仅 watcher 线程读写）
         self._consumed_control_seq = 0
+        #: M34.3 控制文件签名缓存（mtime_ns, size；仅 watcher 线程读写）：
+        #: 50ms 轮询下签名未变跳过 read+JSON 解析（9.47µs → 1.42µs/次，-85%）。
+        self._control_sig: tuple[int, int] | None = None
 
         # 录音缓冲（仅 RECORDING 状态使用）
         self._rec_buffer: list[bytes] = []
         self._rec_silence_ms = 0
         # pre-roll 环形缓冲：等待唤醒时持续保存最近 N 帧语音，触发时前置进录音缓冲，
-        # 避免唤醒词（如"雪莉"）在 VAD 累积判定期间被漏掉
+        # 避免唤醒词（如"雪莉"）在 VAD 累积判定期间被漏掉。
+        # M34.3：list+pop(0)（每帧 O(n) 搬移）改为有界 deque（append 自动逐出 O(1)）。
         self._preroll_frames = max(1, int(1500 / config.frame_ms))  # 默认 1.5 秒
-        self._preroll_buf: list[bytes] = []
+        self._preroll_buf: deque[bytes] = deque(maxlen=self._preroll_frames)
         # 续听窗口超时截止时间（monotonic）
         self._follow_up_deadline: float = 0.0
         # 首轮标志：唤醒后第一次说话需要校验唤醒词
         self._is_first_turn = True
+        # M32.29：最近一次实际播报的回复文本——续听窗口回声过滤依据。
+        # TTS 播报被自家麦克风拾取会形成自激循环（转写≈reply → 免热词直达 LLM），
+        # 仅在 player.play 后记录（tts_muted 无扬声器输出，不存在声学回声）。
+        self._last_spoken_reply: str | None = None
         # 热词校验失败后的额外冷却截止时间（避免环境音连续触发循环）
         self._reject_cooldown_until: float = 0.0
 
@@ -355,6 +367,18 @@ class VoicePipeline:
         read = getattr(cf, "read", None)
         if not callable(read):
             return
+        # M34.3 签名缓存：文件元数据（mtime_ns, size）未变则跳过 read+JSON 解析。
+        # 非 Path path（fake 注入）直接放行读路径，保持鸭子类型兼容。
+        path = getattr(cf, "path", None)
+        if isinstance(path, Path):
+            try:
+                st = path.stat()
+            except OSError:
+                return  # 文件不存在/不可读：本轮无指令
+            sig = (st.st_mtime_ns, st.st_size)
+            if sig == self._control_sig:
+                return
+            self._control_sig = sig
         payload = read(getattr(cf, "path", None))
         if payload is None:
             return
@@ -398,10 +422,8 @@ class VoicePipeline:
     def _dispatch(self, frame: bytes) -> None:
         state = self.state
         if state == PipelineState.WAKE_LISTENING:
-            # 维护 pre-roll 环形缓冲：保存最近 N 帧
+            # 维护 pre-roll 环形缓冲：有界 deque 满员自动逐出最旧帧（O(1)）
             self._preroll_buf.append(frame)
-            if len(self._preroll_buf) > self._preroll_frames:
-                self._preroll_buf.pop(0)
             # 热词校验失败后的额外冷却期内，跳过唤醒检测
             if time.monotonic() < self._reject_cooldown_until:
                 return
@@ -455,7 +477,11 @@ class VoicePipeline:
             self._rec_silence_ms = 0
         else:
             self._rec_silence_ms += cfg.frame_ms
-        max_frames = max(1, int(cfg.max_record_s * 1000) // cfg.frame_ms)
+        # M32.29：首轮（热词校验前）录音是投机性的——嘈杂环境可能录到媒体音——
+        # 用更短的 wake_max_record_s 上限；热词校验通过后的续听仍用 max_record_s。
+        speculative = self._is_first_turn and getattr(self._wake, "requires_hotword_check", False)
+        limit_s = cfg.wake_max_record_s if speculative else cfg.max_record_s
+        max_frames = max(1, int(limit_s * 1000) // cfg.frame_ms)
         min_frames = max(1, int(800) // cfg.frame_ms)  # 最小录音 800ms，避免短噪音截断
         silence_hit = self._rec_silence_ms >= cfg.vad_silence_ms and len(self._rec_buffer) >= min_frames
         length_hit = len(self._rec_buffer) >= max_frames
@@ -474,6 +500,12 @@ class VoicePipeline:
             # 空识别结果：设置 2 秒拒绝冷却，避免环境音循环触发
             self._reject_cooldown_until = time.monotonic() + 2.0
             self._set_state(PipelineState.WAKE_LISTENING)
+            return
+        if not self._is_first_turn and self._is_echo_transcript(text, self._last_spoken_reply):
+            # M32.29：续听窗口拾到自家播报的回声——丢弃并留在续听窗口
+            #（deadline 不变，用户仍可在剩余窗口内说话；无真实语音则超时退出）。
+            logger.debug("续听回声丢弃: %r", text)
+            self._set_state(PipelineState.FOLLOW_UP_LISTENING)
             return
         if self._is_first_turn and getattr(self._wake, "requires_hotword_check", False):
             processed = self._check_hotword(text, cfg)
@@ -498,7 +530,28 @@ class VoicePipeline:
             speech = self._tts.synthesize(reply)
             tts_sr = getattr(self._tts, "sample_rate", cfg.sample_rate)
             self._player.play(speech, tts_sr)
+            self._last_spoken_reply = reply
         self._enter_follow_up_listening()
+
+    _ECHO_STRIP_RE = re.compile(r"[\s，。！？,.!?、；;：:\"'\"'（）()…—~·-]+")
+
+    @staticmethod
+    def _is_echo_transcript(text: str, last_reply: str | None) -> bool:
+        """续听回声判定：归一化（去标点/空白、小写）后互为子串或相似度 ≥0.6。
+
+        只拾到播报开头（子串）、混响拖尾多出尾巴（反向子串）、ASR 个别字
+        转写差异（相似度）都视为回声；`last_reply` 为 None 或任一侧归一化
+        后为空时不判回声（无从比较）。
+        """
+        if not last_reply:
+            return False
+        a = VoicePipeline._ECHO_STRIP_RE.sub("", text).lower()
+        b = VoicePipeline._ECHO_STRIP_RE.sub("", last_reply).lower()
+        if not a or not b:
+            return False
+        if a in b or b in a:
+            return True
+        return SequenceMatcher(None, a, b).ratio() >= 0.6
 
     @staticmethod
     def _check_hotword(text: str, cfg: VoiceConfig) -> str | None:

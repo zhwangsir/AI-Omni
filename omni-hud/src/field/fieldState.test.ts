@@ -4,7 +4,8 @@
  * - reducedMotion 各态降级为静态稀疏场（无波纹/无轨道/无流线/无倾向/无闪烁/无辉光）；
  * - 边界硬钳制：dim ∈ [0,1]、brightnessLift ≤ 0.2、角速度有界、流线振幅有界、
  *   flickerIntensity ≤ 0.5、flickerSpeed ≤ 4、glowBoost ≤ 0.4、sphereScale ∈ [0.9, 1.25]；
- * - 所有态统一保持 sphere 形态（区别仅在亮度/闪烁/辉光/膨胀）。
+ * - 活跃态（非 idle）统一保持 sphere 形态（区别仅在亮度/闪烁/辉光/膨胀）；
+ *   idle/null 完全透明（dim=0）+ 释放形态（particleShape=null），待机不占视野（M32.31）。
  * 纯函数测试：不依赖 three / WebGL / React。
  */
 import { describe, expect, it } from "vitest";
@@ -80,49 +81,54 @@ describe("WELL_POSITION 声井位置常量", () => {
 });
 
 describe("resolveFieldState 全态 + 不可用 + reducedMotion 全覆盖", () => {
-  it("所有状态全部返回合法 FieldParams（边界硬钳制），且 particleShape 统一为 sphere", () => {
+  it("活跃态（非 idle）全部返回合法 FieldParams（边界硬钳制），且 particleShape 统一为 sphere", () => {
     for (const state of ALL_STATES) {
       const params = resolveFieldState(state, false);
       expect(params, state).toBeDefined();
-      expect(params.particleShape, state).toBe("sphere");
+      if (state === "idle") {
+        // idle 完全透明 + 释放形态（M32.31：桌面待机不占视野）
+        expect(params.particleShape, state).toBeNull();
+      } else {
+        expect(params.particleShape, state).toBe("sphere");
+      }
       expectWithinHardBounds(params);
     }
   });
 
-  it("null / undefined（源不可用）= idle 等价：凝聚球体 dim=0.8，柔和呼吸微光", () => {
+  it("null / undefined（源不可用）= idle 等价：完全透明 + 自由流场（M32.31）", () => {
     const expected = resolveFieldState("idle", false);
     const nullParams = resolveFieldState(null, false);
     const undefParams = resolveFieldState(undefined, false);
     expect(nullParams).toEqual(expected);
     expect(undefParams).toEqual(expected);
-    expect(expected.dimFactor).toBe(0.8);
+    expect(expected.dimFactor).toBe(0);
     expect(expected.attractor).toBeNull();
     expect(expected.orbit).toBeNull();
     expect(expected.flowline).toBeNull();
     expect(expected.ripple).toBeNull();
-    expect(expected.brightnessLift).toBe(0.03);
-    expect(expected.particleShape).toBe("sphere");
-    expect(expected.pulseStrength).toBe(0.08);
+    expect(expected.brightnessLift).toBe(0);
+    expect(expected.particleShape).toBeNull();
+    expect(expected.pulseStrength).toBe(0);
     expect(expected.helixRotSpeed).toBe(0);
-    expect(expected.flickerIntensity).toBe(0.12);
-    expect(expected.flickerSpeed).toBe(0.8);
-    expect(expected.glowBoost).toBe(0.05);
+    expect(expected.flickerIntensity).toBe(0);
+    expect(expected.flickerSpeed).toBe(0);
+    expect(expected.glowBoost).toBe(0);
     expect(expected.sphereScale).toBe(1);
   });
 
-  it("idle：dim=0.8 柔和球体、轻柔呼吸闪烁、微辉光、半径 1.0", () => {
+  it("idle：完全透明（dimFactor=0）+ 粒子形态释放（null）——待机不占视野，唤醒时经 morphTo 从四周汇聚（M32.31）", () => {
     const params = resolveFieldState("idle", false);
-    expect(params.dimFactor).toBe(0.8);
+    expect(params.dimFactor).toBe(0);
     expect(params.attractor).toBeNull();
     expect(params.orbit).toBeNull();
     expect(params.flowline).toBeNull();
     expect(params.ripple).toBeNull();
-    expect(params.particleShape).toBe("sphere");
-    expect(params.pulseStrength).toBe(0.08);
+    expect(params.particleShape).toBeNull();
+    expect(params.pulseStrength).toBe(0);
     expect(params.helixRotSpeed).toBe(0);
-    expect(params.flickerIntensity).toBe(0.12);
-    expect(params.flickerSpeed).toBe(0.8);
-    expect(params.glowBoost).toBe(0.05);
+    expect(params.flickerIntensity).toBe(0);
+    expect(params.flickerSpeed).toBe(0);
+    expect(params.glowBoost).toBe(0);
     expect(params.sphereScale).toBe(1);
   });
 
@@ -256,9 +262,9 @@ describe("resolveFieldState reducedMotion 降级（静态稀疏场）", () => {
     }
   });
 
-  it("reducedMotion 下 idle/null 仍为 dim=0.8（不暗到 0，保留隐约在场）", () => {
-    expect(resolveFieldState("idle", true).dimFactor).toBe(0.8);
-    expect(resolveFieldState(null, true).dimFactor).toBe(0.8);
+  it("reducedMotion 下 idle/null 仍 dim=0（M32.31：完全透明，静态球体占位但不可见）", () => {
+    expect(resolveFieldState("idle", true).dimFactor).toBe(0);
+    expect(resolveFieldState(null, true).dimFactor).toBe(0);
   });
 
   it("reducedMotion 下 speaking 仍 dim=1（场保持可见，让位由 UI 层处理）", () => {
@@ -278,9 +284,12 @@ describe("resolveFieldState 纯函数稳定性", () => {
     expect(a).toEqual(b);
   });
 
-  it("dormant 标志为 true 时 idle 再 ×0.2（休眠参数位预留，仅断言乘法语义）", () => {
-    const dormantParams = resolveFieldState("idle", false, { dormant: true });
-    expect(dormantParams.dimFactor).toBeCloseTo(0.16, 6);
+  it("dormant 标志为 true 时 dim 再 ×0.2（休眠参数位预留，仅断言乘法语义）", () => {
+    // 用活跃态验证乘法语义（M32.31 后 idle 基数为 0，乘任何数仍为 0，无法体现乘法）
+    const dormantParams = resolveFieldState("speaking", false, { dormant: true });
+    expect(dormantParams.dimFactor).toBeCloseTo(0.2, 6);
     expect(dormantParams.dormant).toBe(true);
+    // idle 完全透明 ×0.2 仍为 0
+    expect(resolveFieldState("idle", false, { dormant: true }).dimFactor).toBe(0);
   });
 });

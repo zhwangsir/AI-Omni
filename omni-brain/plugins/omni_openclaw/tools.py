@@ -146,25 +146,43 @@ def _run_async(coro: Any) -> Any:
             return future.result()
 
 
+def _run_with(resource: Any, coro: Any) -> Any:
+    """运行协程，并在同一事件循环内关闭 ``resource``（M32.23）。
+
+    工具 handler 为一次性调用：客户端（OpenClawClient / HomeAssistantClient /
+    AicgPipeline / ClusterChecker）用完必须在同一事件循环内 ``await close()``，
+    否则长驻进程中每次工具调用都泄漏一个 httpx 连接池（GC 时触发
+    ResourceWarning，真实运行时为未释放的 socket）。
+    """
+
+    async def _runner() -> Any:
+        try:
+            return await coro
+        finally:
+            close = getattr(resource, "close", None)
+            if close is not None:
+                await close()
+
+    return _run_async(_runner())
+
+
 def _handle_send_wechat(params: dict[str, Any]) -> str:
-    """处理 openclaw_send_wechat 工具调用。"""
+    """处理 openclaw_send_wechat 工具调用（M38 起弃用，由 omni_wechat 直连 iLink 替代）。"""
     message = params.get("message", "")
     if not message or not str(message).strip():
         return json.dumps(
             error_response("E_INVALID_PARAMS", "缺少必填参数 message"),
             ensure_ascii=False,
         )
-
-    cfg = OpenClawConfig.from_env()
-    client = OpenClawClient(config=cfg)
-    result = _run_async(
-        client.send_wechat_message(
-            message=message,
-            target=params.get("target"),
-            account=params.get("account"),
-        )
+    return json.dumps(
+        error_response(
+            "E_DEPRECATED",
+            "openclaw_send_wechat 已弃用：微信链路 M38 起改为 omni_wechat 插件直连 "
+            "iLink（链路更短且支持接收），请改用 wechat_send 工具",
+            replacement="wechat_send",
+        ),
+        ensure_ascii=False,
     )
-    return json.dumps(result, ensure_ascii=False)
 
 
 def _handle_vision_chat(params: dict[str, Any]) -> str:
@@ -184,12 +202,13 @@ def _handle_vision_chat(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     client = OpenClawClient(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        client,
         client.vision_chat(
             prompt=prompt,
             image_base64_or_url=image,
             detail=params.get("detail", "auto"),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -211,12 +230,13 @@ def _handle_audio_chat(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     client = OpenClawClient(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        client,
         client.audio_chat(
             prompt=prompt,
             audio_base64=audio,
             format_=params.get("format", "wav"),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -244,12 +264,13 @@ def _handle_video_chat(params: dict[str, Any]) -> str:
             error_response("E_INVALID_PARAMS", "frames 必须是数组"),
             ensure_ascii=False,
         )
-    result = _run_async(
+    result = _run_with(
+        client,
         client.video_chat(
             prompt=prompt,
             video_base64_or_url=video,
             frames=frames,
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -462,13 +483,14 @@ def _handle_control_light(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     client = HomeAssistantClient(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        client,
         client.control_light(
             entity_id=entity_id,
             on=on,
             brightness=params.get("brightness"),
             color_temp=params.get("color_temp"),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -490,12 +512,13 @@ def _handle_control_fan(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     client = HomeAssistantClient(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        client,
         client.control_fan(
             entity_id=entity_id,
             on=on,
             speed=params.get("speed"),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -517,12 +540,13 @@ def _handle_control_air_purifier(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     client = HomeAssistantClient(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        client,
         client.control_air_purifier(
             entity_id=entity_id,
             on=on,
             mode=params.get("mode"),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -531,7 +555,7 @@ def _handle_speaker_voice_on(params: dict[str, Any]) -> str:
     """处理 openclaw_speaker_voice_on 工具调用。"""
     cfg = OpenClawConfig.from_env()
     client = HomeAssistantClient(config=cfg)
-    result = _run_async(client.speaker_voice_on())
+    result = _run_with(client, client.speaker_voice_on())
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -539,7 +563,7 @@ def _handle_speaker_voice_off(params: dict[str, Any]) -> str:
     """处理 openclaw_speaker_voice_off 工具调用。"""
     cfg = OpenClawConfig.from_env()
     client = HomeAssistantClient(config=cfg)
-    result = _run_async(client.speaker_voice_off())
+    result = _run_with(client, client.speaker_voice_off())
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -554,7 +578,7 @@ def _handle_speaker_say(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     client = HomeAssistantClient(config=cfg)
-    result = _run_async(client.speaker_say(text=text))
+    result = _run_with(client, client.speaker_say(text=text))
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -562,7 +586,7 @@ def _handle_cluster_health(params: dict[str, Any]) -> str:
     """处理 openclaw_cluster_health 工具调用。"""
     cfg = OpenClawConfig.from_env()
     checker = ClusterChecker(config=cfg)
-    result = _run_async(checker.health_check())
+    result = _run_with(checker, checker.health_check())
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -592,14 +616,15 @@ def _handle_chat(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     pipeline = AicgPipeline(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        pipeline,
         pipeline.chat(
             prompt=prompt,
             level=params.get("level", "L1"),
             nsfw=params.get("nsfw", False),
             temperature=params.get("temperature", 0.7),
             max_tokens=params.get("max_tokens", 1024),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -615,12 +640,13 @@ def _handle_generate_image(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     pipeline = AicgPipeline(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        pipeline,
         pipeline.generate_image(
             prompt=prompt,
             width=params.get("width", 1024),
             height=params.get("height", 1024),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -636,11 +662,12 @@ def _handle_text_to_speech(params: dict[str, Any]) -> str:
 
     cfg = OpenClawConfig.from_env()
     pipeline = AicgPipeline(config=cfg)
-    result = _run_async(
+    result = _run_with(
+        pipeline,
         pipeline.text_to_speech(
             text=text,
             output_path=params.get("output_path"),
-        )
+        ),
     )
     return json.dumps(result, ensure_ascii=False)
 
@@ -656,7 +683,7 @@ def register(ctx) -> None:
     )
     ctx.register_tool(
         name="openclaw_send_wechat",
-        description="通过 OpenClaw 发送微信消息",
+        description="【已弃用】请改用 omni_wechat 插件的 wechat_send（直连 iLink）",
         emoji="💬",
         schema=OPENCLAW_SEND_WECHAT_SCHEMA,
         handler_func=_handle_send_wechat,

@@ -65,7 +65,7 @@ const DEVELOPER_AMBER: DarkroomTheme = {
     dim: "#83878f",
     accent: "#c9a86a",
   },
-  particles: ["#c9a86a", "#8b93a7", "#d8d9dc", "#5d6678", "#b04a3a"],
+  particles: ["#e8c97a", "#a8b8d8", "#f0f2f5", "#7a8aa0", "#d85c48"],
 };
 
 /** 银盐冷灰：黑白相纸的冷银影调。 */
@@ -80,7 +80,7 @@ const SILVER_GRAY: DarkroomTheme = {
     dim: "#7d8590",
     accent: "#a8b8c8",
   },
-  particles: ["#a8b8c8", "#7d8590", "#cfd4db", "#55606e"],
+  particles: ["#c8d8e8", "#a0aab8", "#e8edf2", "#768090"],
 };
 
 /** 暗房安全灯红：相纸冲洗时的安全灯红晕。 */
@@ -95,7 +95,7 @@ const SAFELIGHT_RED: DarkroomTheme = {
     dim: "#8f8078",
     accent: "#b04a3a",
   },
-  particles: ["#b04a3a", "#8f8078", "#ddd2cc", "#5d4a42"],
+  particles: ["#d85c48", "#b8a090", "#f0e2d8", "#8a7060"],
 };
 
 export const THEMES: readonly DarkroomTheme[] = [DEVELOPER_AMBER, SILVER_GRAY, SAFELIGHT_RED];

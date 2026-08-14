@@ -24,6 +24,7 @@ import type {
   ScanResult,
 } from "../../store/libraryStore";
 import { EMPTY_LIBRARY_STATE } from "../../store/libraryStore";
+import type { MusicStore, Song } from "../../store/musicStore";
 import { LibraryView } from "./LibraryView";
 
 // ---------------------------------------------------------------------------
@@ -426,5 +427,159 @@ describe("LibraryView 风格约束", () => {
     render(<LibraryView store={store} autoFetch={false} />);
     const row = screen.getAllByTestId("library-song-row")[0];
     expect(row.querySelector("svg")).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M32.29b 在线搜索入口（musicStore.searchOnline）
+// ---------------------------------------------------------------------------
+
+function makeOnlineSong(overrides: Partial<Song> = {}): Song {
+  return {
+    id: "on1",
+    name: "在线晴天",
+    artists: ["周杰伦"],
+    album: "叶惠美",
+    duration_s: 269,
+    url: "http://example.com/on1.mp3",
+    lyrics: null,
+    cover_url: null,
+    source: "netease",
+    ...overrides,
+  };
+}
+
+/** fake MusicStore：仅承载在线搜索相关的最小面。 */
+function makeFakeMusicStore(initial: { onlineResults?: readonly Song[] | null } = {}): {
+  store: MusicStore;
+  searchOnline: ReturnType<typeof vi.fn>;
+  clearOnlineResults: ReturnType<typeof vi.fn>;
+  play: ReturnType<typeof vi.fn>;
+  setOnlineResults: (songs: readonly Song[] | null) => void;
+} {
+  let state = { onlineResults: initial.onlineResults ?? null };
+  const listeners = new Set<() => void>();
+  const searchOnline = vi.fn(async (_keyword: string) => {});
+  const clearOnlineResults = vi.fn();
+  const play = vi.fn(async (_opts?: { songId?: string }) => {});
+  const store = {
+    getState: () => state,
+    subscribe: (l: () => void) => {
+      listeners.add(l);
+      return () => {
+        listeners.delete(l);
+      };
+    },
+    searchOnline,
+    clearOnlineResults,
+    play,
+  } as unknown as MusicStore;
+  const setOnlineResults = (songs: readonly Song[] | null): void => {
+    state = { ...state, onlineResults: songs };
+    act(() => {
+      for (const l of [...listeners]) l();
+    });
+  };
+  return { store, searchOnline, clearOnlineResults, play, setOnlineResults };
+}
+
+describe("LibraryView 在线搜索（M32.29b）", () => {
+  it("传入 musicStore 时渲染本地/在线切换，默认本地", () => {
+    const { store } = makeFakeStore();
+    const music = makeFakeMusicStore();
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    const local = screen.getByTestId("library-scope-local");
+    const online = screen.getByTestId("library-scope-online");
+    expect(local.getAttribute("data-active")).toBe("true");
+    expect(online.getAttribute("data-active")).toBe("false");
+  });
+
+  it("不传 musicStore 时不渲染切换按钮（向后兼容）", () => {
+    const { store } = makeFakeStore();
+    render(<LibraryView store={store} autoFetch={false} />);
+    expect(screen.queryByTestId("library-scope-local")).toBeNull();
+    expect(screen.queryByTestId("library-scope-online")).toBeNull();
+  });
+
+  it("在线模式 Enter 触发 musicStore.searchOnline", () => {
+    const { store, actions } = makeFakeStore();
+    const music = makeFakeMusicStore();
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    fireEvent.click(screen.getByTestId("library-scope-online"));
+    const input = screen.getByTestId("library-search-input");
+    fireEvent.change(input, { target: { value: "周杰伦" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(music.searchOnline).toHaveBeenCalledWith("周杰伦");
+    expect(actions.searchLibrary).not.toHaveBeenCalled();
+    expect(screen.getByTestId("library-song-panel").getAttribute("data-mode")).toBe("online");
+  });
+
+  it("本地模式搜索仍调 store.searchLibrary", () => {
+    const { store, actions } = makeFakeStore();
+    const music = makeFakeMusicStore();
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    const input = screen.getByTestId("library-search-input");
+    fireEvent.change(input, { target: { value: "晴天" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(actions.searchLibrary).toHaveBeenCalledWith("晴天");
+    expect(music.searchOnline).not.toHaveBeenCalled();
+  });
+
+  it("在线结果渲染：歌名 / 艺术家 / 时长，data-mode=online", () => {
+    const { store } = makeFakeStore();
+    const music = makeFakeMusicStore({
+      onlineResults: [makeOnlineSong(), makeOnlineSong({ id: "on2", name: "稻香" })],
+    });
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    fireEvent.click(screen.getByTestId("library-scope-online"));
+    expect(screen.getByTestId("library-song-panel").getAttribute("data-mode")).toBe("online");
+    const list = screen.getByTestId("library-online-list");
+    expect(list.getAttribute("data-song-count")).toBe("2");
+    const rows = screen.getAllByTestId("library-online-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain("在线晴天");
+    expect(rows[0]?.textContent).toContain("周杰伦");
+    expect(rows[0]?.textContent).toContain("4:29");
+    expect(rows[1]?.textContent).toContain("稻香");
+  });
+
+  it("点击在线歌曲行调 musicStore.play({ songId })", () => {
+    const { store } = makeFakeStore();
+    const music = makeFakeMusicStore({ onlineResults: [makeOnlineSong({ id: "on9" })] });
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    fireEvent.click(screen.getByTestId("library-scope-online"));
+    fireEvent.click(screen.getByTestId("library-online-row"));
+    expect(music.play).toHaveBeenCalledWith({ songId: "on9" });
+  });
+
+  it("onlineResults=null 显示搜索提示；空数组显示无匹配", () => {
+    const { store } = makeFakeStore();
+    const music = makeFakeMusicStore({ onlineResults: null });
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    fireEvent.click(screen.getByTestId("library-scope-online"));
+    expect(screen.getByTestId("library-online-empty").textContent).toContain("搜索在线音乐");
+    music.setOnlineResults([]);
+    expect(screen.getByTestId("library-online-empty").textContent).toContain("无匹配歌曲");
+  });
+
+  it("切回本地调 clearOnlineResults 并恢复本地模式", () => {
+    const { store } = makeFakeStore();
+    const music = makeFakeMusicStore({ onlineResults: [makeOnlineSong()] });
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    fireEvent.click(screen.getByTestId("library-scope-online"));
+    expect(screen.getByTestId("library-song-panel").getAttribute("data-mode")).toBe("online");
+    fireEvent.click(screen.getByTestId("library-scope-local"));
+    expect(music.clearOnlineResults).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("library-song-panel").getAttribute("data-mode")).toBe("empty");
+  });
+
+  it("在线歌曲行渲染 play 图标 svg（无 emoji）", () => {
+    const { store } = makeFakeStore({ songs: null, currentPlaylistId: null });
+    const music = makeFakeMusicStore({ onlineResults: [makeOnlineSong()] });
+    render(<LibraryView store={store} musicStore={music.store} autoFetch={false} />);
+    fireEvent.click(screen.getByTestId("library-scope-online"));
+    const row = screen.getByTestId("library-online-row");
+    expect(row.querySelector("svg")).not.toBeNull();
+    expect(row.textContent ?? "").not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   });
 });

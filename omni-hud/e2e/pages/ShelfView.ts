@@ -127,6 +127,8 @@ export class ShelfViewPage {
         new MouseEvent("contextmenu", {
           bubbles: true,
           cancelable: true,
+          button: 2,
+          buttons: 2,
           clientX: 0,
           clientY: 0,
         }),

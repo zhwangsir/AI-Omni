@@ -15,8 +15,11 @@ import { PALETTE_SLOTS, type Rgb } from "./themeBridge";
 /** 实例属性构建的固定种子：档切换重建时同一批粒子，视觉连续不闪断。 */
 export const PARTICLE_SEED = 0x5eed;
 
-/** 粒子体积分布半径（世界单位）：z 向刻意更深，拉开纵深层次。 */
-export const VOLUME_EXTENT = { x: 4.2, y: 2.6, z: 3.8 } as const;
+/** 粒子体积分布半径（世界单位）：x/y 展宽到接近视口边缘、z 向拉开纵深层次。
+ *  设计目标：idle 自由流场时粒子种子散布到屏幕外围（唤醒时从四周向球心汇聚，
+ *  形成明显"收束仪式感"；dimFactor=0 时粒子完全不可见，故分布再宽也不泄露）。
+ *  成形态（morphFactor=1）粒子定位到 aTarget 球体表面，此范围不影响成形态视觉。 */
+export const VOLUME_EXTENT = { x: 7.5, y: 4.8, z: 5.0 } as const;
 
 /** soft sprite 程序纹理边长（px）。 */
 export const SPRITE_TEXTURE_SIZE = 64;

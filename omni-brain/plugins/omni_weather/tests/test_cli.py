@@ -151,6 +151,22 @@ class TestCliSearch:
         assert rc == 0
         assert data["data"]["results"][0]["name"] == "北京"
 
+    def test_search_missing_keyword_returns_json_invalid_params(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["search", "--fake"])
+        assert exc.value.code == 1
+        data = json.loads(capsys.readouterr().out)
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INVALID_PARAMS"
+
+    def test_set_location_missing_city_returns_json_invalid_params(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["set-location", "--fake"])
+        assert exc.value.code == 1
+        data = json.loads(capsys.readouterr().out)
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INVALID_PARAMS"
+
 
 class TestCliRefresh:
     def test_refresh_ok(self, patch_httpx, capsys):

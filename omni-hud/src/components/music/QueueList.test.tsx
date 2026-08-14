@@ -46,6 +46,7 @@ function makeFakeStore(playerState: PlayerStateContract | null): {
     error: null,
     loginQr: null,
     loginStatus: "idle",
+    onlineResults: null,
   };
   const listeners = new Set<() => void>();
   const actions = {

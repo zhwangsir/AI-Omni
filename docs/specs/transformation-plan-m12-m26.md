@@ -1,6 +1,6 @@
 # AI-Omni 转型计划：M12-M26（eIsland + Mineradio 能力融合）
 
-> 基于 `/Users/wangzhenyu/Desktop/ALLProject/AI-Omni/ai-omni-prompts.md` 的 15 个参考提示词，
+> 基于 `ai-omni-prompts.md`（已归档删除）的 15 个参考提示词，
 > 将 eIsland（灵动岛/插件SDK/系统辅助）与 Mineradio（音乐源/3D歌单架/视觉舞台）的优秀能力融入 AI-Omni。
 > 本计划为自治执行设计，含决策点、升级流程、风险缓解与成功标准。
 
@@ -206,7 +206,7 @@ M15(SDK) → M17(音乐) → M21(视觉) → 完成   [最长路径，~25天]
 
 ##### 前置分析
 
-项目已有 AGENTS.md 和 CLAUDE.md，需更新以反映 omni_sdk 插件规范，并补充 GEMINI.md。
+项目已有 AGENTS.md 和 CLAUDE.md，需更新以反映 omni_sdk 插件规范，并补充 GEMINI.md（后已废弃删除）。
 
 ##### 执行步骤
 
@@ -214,7 +214,7 @@ M15(SDK) → M17(音乐) → M21(视觉) → 完成   [最长路径，~25天]
 |---|------|------|------|
 | 1 | 更新 AGENTS.md：新增插件开发规范（OmniPlugin 基类/manifest/权限） | AGENTS.md | 0.2天 |
 | 2 | 更新 CLAUDE.md：插件开发流程 + 常见任务模板 | CLAUDE.md | 0.2天 |
-| 3 | 新增 GEMINI.md：Gemini 协作配置 + MCP 集成 | GEMINI.md | 0.2天 |
+| 3 | ~~新增 GEMINI.md：Gemini 协作配置 + MCP 集成~~（已废弃，文件已删除） | GEMINI.md | 0.2天 |
 | 4 | 新增 .cursor/.kiro MCP 配置（可选） | .cursor/ | 0.2天 |
 
 ##### 成功标准

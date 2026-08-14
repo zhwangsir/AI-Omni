@@ -84,6 +84,15 @@ class QRLoginFlow:
         self._cookies_saved = False
         return {"key": self._key, "qr_url": self._qr_url}
 
+    def start_session(self) -> None:
+        """仅重置会话计时起点（``_started_at`` 置为当前 monotonic 时刻）。
+
+        跨进程重建 flow 的场景（如 CLI ``login-check`` 每次轮询都是新子进程）
+        不需要重新请求 ``login_qr``，只需让超时窗口从当前时刻重新计；
+        以此公共方法替代外部直接写私有属性 ``_started_at``。
+        """
+        self._started_at = time.monotonic()
+
     def poll(self) -> str:
         """轮询一次登录状态。
 

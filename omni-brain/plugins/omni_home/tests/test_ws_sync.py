@@ -331,3 +331,226 @@ class TestAutoReconnect:
 
         assert done.wait(timeout=1.0) is True
         assert lock_acquired_inside_callback is True
+
+
+# ---------------------------------------------------------------------------
+# 协议边界分支
+# ---------------------------------------------------------------------------
+class TestProtocolEdges:
+    def test_auth_reply_unexpected_type_raises(self):
+        """auth 响应既非 invalid_auth 也非 auth_ok → 协议错误。"""
+        ws = FakeWebSocket([
+            {"type": "auth_required", "ha_version": "2026.7"},
+            {"type": "pong"},
+        ])
+        with pytest.raises(HomeError, match="auth_ok"):
+            _sync(ws).connect()
+
+    def test_subscribe_without_connect_raises(self):
+        """未连接时订阅 → HomeError。"""
+        with pytest.raises(HomeError, match="尚未连接"):
+            _sync(FakeWebSocket()).subscribe()
+
+    def test_event_during_subscribe_is_handled(self):
+        """订阅确认到达前的 event 消息被正常处理（入缓存）。"""
+        ws = FakeWebSocket(
+            _auth_handshake()
+            + [_state_event("light.early", "on"), _subscribe_result()]
+        )
+        sync = _sync(ws)
+        sync.connect()
+        sync.subscribe()
+        assert sync.get_cached("light.early")["state"] == "on"
+        assert ws.sent[1] == {"id": 1, "type": "subscribe_events", "event_type": "state_changed"}
+
+    def test_default_factory_returns_connection_when_module_available(self, monkeypatch):
+        """websocket 模块可用时，默认工厂透传 create_connection 的结果。"""
+        import sys
+        import types
+
+        from omni_home.ws_sync import _default_ws_factory
+
+        sentinel = object()
+        fake_ws_mod = types.ModuleType("websocket")
+        fake_ws_mod.create_connection = lambda url, timeout=None: sentinel
+        monkeypatch.setitem(sys.modules, "websocket", fake_ws_mod)
+
+        assert _default_ws_factory(_config()) is sentinel
+
+
+# ---------------------------------------------------------------------------
+# _recv_json / _receive_loop 守卫分支
+# ---------------------------------------------------------------------------
+class TestRecvGuards:
+    def test_recv_json_reraises_home_error_unwrapped(self):
+        """recv 抛 HomeError 时原样上抛，不包装为 HomeConnectionError。"""
+
+        class HomeErrorWs(FakeWebSocket):
+            def recv(self):
+                raise HomeError("protocol boom")
+
+        sync = _sync(FakeWebSocket())
+        sync._ws = HomeErrorWs()
+        with pytest.raises(HomeError, match="protocol boom") as exc_info:
+            sync._recv_json()
+        assert not isinstance(exc_info.value, HomeConnectionError)
+
+    def test_receive_loop_returns_false_when_ws_none(self):
+        """_ws 为 None 时接收循环立即返回 False。"""
+        sync = _sync(FakeWebSocket())
+        assert sync._receive_loop() is False
+
+    def test_receive_loop_reraises_home_error(self):
+        """接收循环中非连接类 HomeError 原样上抛（不断线重连）。"""
+
+        class HomeErrorWs(FakeWebSocket):
+            def recv(self):
+                raise HomeError("bad frame")
+
+        sync = _sync(FakeWebSocket())
+        sync._ws = HomeErrorWs()
+        with pytest.raises(HomeError, match="bad frame") as exc_info:
+            sync._receive_loop()
+        assert not isinstance(exc_info.value, HomeConnectionError)
+
+    def test_receive_loop_returns_true_when_stopped(self):
+        """stop 置位后接收循环返回 True（正常结束，无需重连）。"""
+        sync = _sync(FakeWebSocket())
+        sync._stop.set()
+        assert sync._receive_loop() is True
+
+
+# ---------------------------------------------------------------------------
+# 回调与关闭的容错分支
+# ---------------------------------------------------------------------------
+class TestFaultTolerance:
+    def test_non_event_message_ignored(self):
+        """type != event 的消息直接忽略。"""
+        ws = FakeWebSocket(
+            _auth_handshake() + [_subscribe_result(), {"id": 2, "type": "result", "success": True}]
+        )
+        sync = _sync(ws)
+        sync.connect()
+        sync.subscribe()
+        assert sync.run_once() is True
+        assert sync.cached_states() == {}
+
+    def test_ws_close_failure_swallowed_on_disconnect(self):
+        """断开时 ws.close() 抛异常被吞掉，连接状态仍正确更新。"""
+
+        class BadCloseWs(FakeWebSocket):
+            def close(self):
+                self.closed = True
+                raise RuntimeError("close boom")
+
+        ws = BadCloseWs(_auth_handshake() + [_subscribe_result()])
+        sync = _sync(ws)
+        sync.connect()
+        sync.subscribe()
+        assert sync.run_once() is False  # 脚本耗尽 → 断开
+        assert sync.connected is False
+        assert ws.closed is True
+
+    def test_connection_change_callback_failure_swallowed(self):
+        """on_connection_change 回调抛异常被吞掉，不影响连接状态。"""
+
+        def bad_cb(connected):
+            raise RuntimeError("cb boom")
+
+        ws = FakeWebSocket(_auth_handshake())
+        sync = _sync(ws, on_connection_change=bad_cb)
+        sync.connect()  # 不应抛错
+        assert sync.connected is True
+
+    def test_state_callback_failure_swallowed(self):
+        """on_state_changed 回调抛异常被吞掉，缓存仍更新。"""
+
+        def bad_cb(entity_id, state):
+            raise RuntimeError("cb boom")
+
+        ws = FakeWebSocket(
+            _auth_handshake() + [_subscribe_result(), _state_event("light.a", "on")]
+        )
+        sync = _sync(ws, on_state_changed=bad_cb)
+        sync.connect()
+        sync.subscribe()
+        assert sync.run_once() is True
+        assert sync.get_cached("light.a")["state"] == "on"
+
+    def test_close_ws_failure_swallowed_on_stop(self):
+        """stop() 时 ws.close() 抛异常被吞掉（幂等不抛错）。"""
+
+        class BadCloseWs(FakeWebSocket):
+            def close(self):
+                raise OSError("close boom")
+
+        ws = BadCloseWs(_auth_handshake() + [_subscribe_result()])
+        sync = _sync(ws)
+        sync.connect()
+        sync.subscribe()
+        sync.stop()  # 不应抛错
+        assert sync.connected is False
+
+
+# ---------------------------------------------------------------------------
+# _run 主循环分支
+# ---------------------------------------------------------------------------
+class TestRunLoopBranches:
+    def test_run_breaks_when_receive_loop_ends_normally(self):
+        """接收循环正常结束（stop 置位）→ 主循环 break 退出线程。"""
+        holder: dict[str, HomeStateSync] = {}
+
+        class StopAfterScriptWs(FakeWebSocket):
+            def recv(self):
+                msg = super().recv()
+                if not self.incoming:
+                    holder["sync"]._stop.set()
+                return msg
+
+        ws = StopAfterScriptWs(
+            _auth_handshake() + [_subscribe_result(), _state_event("light.a", "on")]
+        )
+        sync = HomeStateSync(_config(), ws_factory=lambda config: ws, reconnect_enabled=True)
+        holder["sync"] = sync
+        sync.start()
+        sync._thread.join(timeout=3.0)
+        assert not sync._thread.is_alive()
+        assert sync.get_cached("light.a")["state"] == "on"
+        assert sync.is_running is False
+
+    def test_run_auth_error_breaks_without_reconnect(self):
+        """认证失败 → 记录错误并退出线程（不自动重连）。"""
+        ws = FakeWebSocket([
+            {"type": "auth_required", "ha_version": "2026.7"},
+            {"type": "invalid_auth", "message": "bad token"},
+        ])
+        sync = HomeStateSync(_config(), ws_factory=lambda config: ws, reconnect_enabled=True)
+        sync.start()
+        sync._thread.join(timeout=3.0)
+        assert not sync._thread.is_alive()
+        assert sync.last_error == "认证失败，不自动重连"
+        assert sync.connected is False
+
+    def test_run_home_error_recorded_when_reconnect_disabled(self):
+        """协议错误（HomeError）→ 记录 last_error，重连关闭时退出线程。"""
+        ws = FakeWebSocket([{"type": "pong"}])  # 期望 auth_required
+        sync = _sync(ws, reconnect_enabled=False)
+        sync.start()
+        sync._thread.join(timeout=3.0)
+        assert not sync._thread.is_alive()
+        assert "协议" in sync.last_error
+
+    def test_run_unexpected_exception_recorded(self):
+        """非 HomeError 异常 → last_error 记录为「意外错误」。"""
+
+        class SendBoomWs(FakeWebSocket):
+            def send(self, payload):
+                raise RuntimeError("send boom")
+
+        ws = SendBoomWs(_auth_handshake())
+        sync = _sync(ws, reconnect_enabled=False)
+        sync.start()
+        sync._thread.join(timeout=3.0)
+        assert not sync._thread.is_alive()
+        assert "意外错误" in sync.last_error
+        assert "send boom" in sync.last_error

@@ -92,6 +92,69 @@ class TestResetAndCooldown:
         assert [wake.detect(_LOUD) for _ in range(2)][-1] == 1.0
 
 
+class TestHangoverTolerance:
+    """hangover 容忍：语音段内允许短暂能量凹陷（如「雪莉」双音节间）不清零。"""
+
+    def test_short_dip_within_hangover_does_not_reset(self):
+        # 3 语音 → 2 帧凹陷（hangover=3 容忍内）→ 再 2 语音：凑满 5 帧触发
+        wake = VADWakeWord(
+            vad=FakeVAD(results=[True] * 3 + [False] * 2 + [True] * 3),
+            speech_frames=5,
+            hangover_frames=3,
+            startup_grace_s=0.0,
+        )
+        results = [wake.detect(_LOUD) for _ in range(8)]
+        # 3+2=5 帧语音在第 7 帧凑满 → 当帧触发，第 8 帧因已触发静默
+        assert results == [0.0] * 6 + [1.0, 0.0]
+
+    def test_dip_longer_than_hangover_resets(self):
+        # 3 语音 → 4 帧凹陷（超出 hangover=3）→ 再 2 语音：计数清零，不触发
+        wake = VADWakeWord(
+            vad=FakeVAD(results=[True] * 3 + [False] * 4 + [True] * 2),
+            speech_frames=5,
+            hangover_frames=3,
+            startup_grace_s=0.0,
+        )
+        results = [wake.detect(_LOUD) for _ in range(9)]
+        assert 1.0 not in results
+
+    def test_hangover_default_zero_keeps_strict_consecutive(self):
+        # 默认 hangover=0：1 帧凹陷即清零（向后兼容旧语义）
+        wake = VADWakeWord(
+            vad=FakeVAD(results=[True] * 4 + [False] + [True] * 4),
+            speech_frames=5,
+            startup_grace_s=0.0,
+        )
+        results = [wake.detect(_LOUD) for _ in range(9)]
+        assert 1.0 not in results
+
+    def test_hangover_budget_restored_on_speech(self):
+        # 每段凹陷独立计数：凹陷 2 帧 → 语音恢复预算 → 再凹陷 2 帧仍容忍
+        wake = VADWakeWord(
+            vad=FakeVAD(
+                results=[True] * 2 + [False] * 2 + [True] * 2 + [False] * 2 + [True]
+            ),
+            speech_frames=5,
+            hangover_frames=2,
+            startup_grace_s=0.0,
+        )
+        results = [wake.detect(_LOUD) for _ in range(9)]
+        assert results[-1] == 1.0
+
+    def test_reset_restores_hangover_budget(self):
+        wake = VADWakeWord(
+            vad=FakeVAD(default=True),
+            speech_frames=3,
+            hangover_frames=2,
+            cooldown_ms=0,
+            startup_grace_s=0.0,
+        )
+        assert [wake.detect(_LOUD) for _ in range(3)][-1] == 1.0
+        wake.reset()
+        # reset 后重新累计：hangover 预算应已恢复
+        assert [wake.detect(_LOUD) for _ in range(3)][-1] == 1.0
+
+
 class TestStartupGrace:
     def test_grace_period_suppresses_detection(self):
         wake = VADWakeWord(
@@ -138,3 +201,86 @@ class TestWithEnergyVAD:
         )
         for _ in range(10):
             assert wake.detect(_SILENT) == 0.0
+
+
+class _BrokenVAD(FakeVAD):
+    """is_speech 永远抛错的 VAD fake。"""
+
+    def is_speech(self, frame, sample_rate):
+        raise RuntimeError("vad broken")
+
+
+class _FlakyVAD(FakeVAD):
+    """可开关故障的 VAD fake：broken=True 时 is_speech 抛错。"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.broken = False
+
+    def is_speech(self, frame, sample_rate):
+        if self.broken:
+            raise RuntimeError("vad broken")
+        return super().is_speech(frame, sample_rate)
+
+
+class _BufferedVAD(FakeVAD):
+    """带内部滑窗缓冲（_buf/_warm）的 VAD fake，模拟滑窗型 VAD 包装器。"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._buf = bytearray(b"\x01\x02")
+        self._warm = True
+
+
+class TestGracePeriodFaultTolerance:
+    """启动稳定期边界：帧窗内 VAD 异常容错、时间窗兜底抑制。"""
+
+    def test_grace_period_vad_exception_swallowed(self):
+        """稳定期帧窗内 VAD 抛错被吞（保持 VAD 热身的调用不拖垮检测），仍返回 0.0。"""
+        wake = VADWakeWord(vad=_BrokenVAD(), speech_frames=2, startup_grace_s=1.5)
+        # grace_frames = 1500ms / 32ms = 46，前几帧都在帧窗稳定期内
+        for _ in range(3):
+            assert wake.detect(_LOUD) == 0.0
+
+    def test_startup_deadline_suppresses_after_grace_frames(self):
+        """帧喂得比实时快：帧窗结束后时间窗（startup_deadline）未到，仍不触发。"""
+        wake = VADWakeWord(
+            vad=FakeVAD(default=True),
+            speech_frames=2,
+            startup_grace_s=0.5,  # grace_frames = 15，时间窗 0.5s
+        )
+        # 瞬间喂 20 帧：前 15 帧走帧窗分支，第 16-20 帧走时间窗分支
+        results = [wake.detect(_LOUD) for _ in range(20)]
+        assert results == [0.0] * 20
+
+
+class TestCooldownFaultTolerance:
+    def test_cooldown_vad_exception_swallowed(self):
+        """冷却期内 VAD 抛错被吞：冷却计数照走，冷却结束后可重新触发。"""
+        vad = _FlakyVAD(default=True)
+        wake = VADWakeWord(
+            vad=vad,
+            speech_frames=2,
+            cooldown_ms=320,  # 10 帧冷却
+            frame_ms=32,
+            startup_grace_s=0.0,
+        )
+        assert [wake.detect(_LOUD) for _ in range(2)][-1] == 1.0
+        wake.reset()
+        vad.broken = True
+        for _ in range(5):
+            assert wake.detect(_LOUD) == 0.0  # 冷却期 VAD 故障不抛出
+        vad.broken = False
+        for _ in range(5):
+            assert wake.detect(_LOUD) == 0.0  # 剩余冷却帧递减完毕
+        assert [wake.detect(_LOUD) for _ in range(2)][-1] == 1.0  # 冷却后重新触发
+
+
+class TestResetClearsVadBuffer:
+    def test_reset_clears_vad_sliding_window(self):
+        """reset 时 VAD 若有内部滑窗（_buf/_warm 鸭子属性），一并清理防止残留误触发。"""
+        vad = _BufferedVAD(default=True)
+        wake = VADWakeWord(vad=vad, speech_frames=1, startup_grace_s=0.0)
+        wake.reset()
+        assert vad._buf == bytearray()
+        assert vad._warm is False

@@ -191,3 +191,67 @@ class TestMacPowerBackend:
         assert result["ok"] is False
         assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
         assert "pmset" in result["error"]["message"]
+
+    def test_subprocess_import_failure_returns_error(self, monkeypatch):
+        """subprocess 模块不可导入时返回 E_BACKEND_UNAVAILABLE（降级不抛错）。"""
+        import sys
+
+        monkeypatch.setitem(sys.modules, "subprocess", None)
+
+        b = MacPowerBackend()
+        result = b.lock_screen()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "subprocess 不可用" in result["error"]["message"]
+
+    def test_run_generic_exception_returns_error(self, monkeypatch):
+        """subprocess.run 抛超时/权限等异常时映射为「命令调用失败」。"""
+        import subprocess
+
+        def _boom(*a, **kw):
+            raise RuntimeError("timeout boom")
+
+        monkeypatch.setattr(subprocess, "run", _boom)
+
+        b = MacPowerBackend()
+        result = b.sleep()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "命令调用失败" in result["error"]["message"]
+        assert "timeout boom" in result["error"]["message"]
+
+    def test_shutdown_failure_returns_error(self, monkeypatch):
+        """shutdown 命令非零退出时返回 E_BACKEND_UNAVAILABLE。"""
+
+        class _Result:
+            returncode = 1
+            stdout = ""
+            stderr = "not authorized"
+
+        import subprocess
+
+        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Result())
+
+        b = MacPowerBackend()
+        result = b.shutdown()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "not authorized" in result["error"]["message"]
+
+    def test_restart_failure_returns_error(self, monkeypatch):
+        """restart 命令非零退出时返回 E_BACKEND_UNAVAILABLE。"""
+
+        class _Result:
+            returncode = 1
+            stdout = ""
+            stderr = "not authorized"
+
+        import subprocess
+
+        monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Result())
+
+        b = MacPowerBackend()
+        result = b.restart()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "not authorized" in result["error"]["message"]

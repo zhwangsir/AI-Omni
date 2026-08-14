@@ -222,6 +222,8 @@ export interface MusicState {
   readonly loginQr: LoginQr | null;
   /** 扫码登录状态机。 */
   readonly loginStatus: LoginStatus;
+  /** 在线搜索结果（music_search，M32.29b）；null = 未搜索 / 已清空。 */
+  readonly onlineResults: readonly Song[] | null;
 }
 
 export interface MusicStore {
@@ -249,6 +251,15 @@ export interface MusicStore {
   startLogin: () => Promise<void>;
   /** 停止登录状态轮询（关闭弹窗 / 组件卸载时调用）。 */
   stopLoginPolling: () => void;
+  /** 在线搜索歌曲（music_search，M32.29b）；空关键词清空结果不发请求。 */
+  searchOnline: (keyword: string) => Promise<void>;
+  /** 清空在线搜索结果（切回本地库 / 关闭视图时调用）。 */
+  clearOnlineResults: () => void;
+  /**
+   * E2E / 演示专用：直接注入播放器状态，绕过 IPC。
+   * 生产路径不应调用——后端是唯一权威源；仅供 __omniDebug 与非 Tauri 预览注入快照。
+   */
+  debugSetPlayerState: (playerState: PlayerStateContract | null) => void;
 }
 
 export interface MusicStoreDeps {
@@ -265,6 +276,7 @@ export const EMPTY_MUSIC_STATE: MusicState = {
   error: null,
   loginQr: null,
   loginStatus: "idle",
+  onlineResults: null,
 };
 
 /** 默认登录轮询间隔：2s（网易云 / QQ 音乐扫码通常 30-60s 内完成）。 */
@@ -414,6 +426,36 @@ export function createMusicStore(deps: MusicStoreDeps = {}): MusicStore {
       if (state.loginStatus === "waiting" || state.loginStatus === "scanned") {
         patch({ loginStatus: "idle" });
       }
+    },
+    async searchOnline(keyword: string) {
+      const trimmed = keyword.trim();
+      if (trimmed === "") {
+        // 空关键词：不发请求，仅清空结果（M32.29b 契约）
+        patch({ onlineResults: null });
+        return;
+      }
+      const data = await callTool<unknown>("music_search", { keyword: trimmed, limit: 20 });
+      if (data === null) {
+        // 错误已由 callTool 写入 state.error；结果置 null 避免展示过期列表
+        patch({ onlineResults: null });
+        return;
+      }
+      const obj = asRecord(data);
+      const rawSongs = obj?.songs;
+      if (!Array.isArray(rawSongs)) {
+        patch({ onlineResults: null, error: "搜索结果数据非法" });
+        return;
+      }
+      const songs = rawSongs
+        .map(normalizeSong)
+        .filter((s): s is Song => s !== null);
+      patch({ onlineResults: songs, error: null });
+    },
+    clearOnlineResults() {
+      patch({ onlineResults: null });
+    },
+    debugSetPlayerState(playerState) {
+      patch({ playerState, error: null });
     },
   };
 }

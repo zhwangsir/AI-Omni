@@ -6,14 +6,15 @@
  * 再经 Space.setField 注入 3D 引擎与流线 canvas。
  *
  * 态语义（球体为主形态，各态通过亮度/闪烁/辉光/膨胀区分）：
- * - idle / 不可用：凝聚球体，亮度 ×0.5，无闪烁无辉光，安静待机
+ * - idle / 不可用：完全透明（dimFactor=0）+ 粒子形态释放为自由流场——桌面待机时
+ *   无任何可见占位，唤醒时粒子自然从四周汇聚成球（Space.morphTo 过渡 ≥600ms）
  * - wake_listening / recording（呼叫雪莉响应）：球体提亮至满亮 + 辉光增强 + 半径膨胀 ~12% + 极微波光
  * - follow_up_listening（续听态 M8）：球体柔和——无波纹、亮度 ×0.65、轻辉光、轻微井心倾向，等待感
  * - transcribing / thinking：球体保持，有节奏的柔和闪烁（~1.2Hz，强度克制），表达"思考中"
  * - tool_using：球体 + 中等闪烁（~1.8Hz）+ 辉光 + 井心轨道，表达"操作工具中"
  * - speaking（响应态）：球体保持，更明显的闪烁（~2.4Hz，强度更高）+ 轻辉光 + 底部流线
  *
- * 所有态始终保持球体形态，不使用螺旋/环等变形——通过闪烁节奏、辉光、膨胀区分语义。
+ * 活跃态（非 idle）始终保持球体形态，不使用螺旋/环等变形——通过闪烁节奏、辉光、膨胀区分语义。
  * 过渡由引擎侧 smoothstep 缓动保证丝滑。
  *
  * 红线（CLAUDE.md §六）：粒子 high≤4000/medium≤2000/low≤800（引擎侧）；
@@ -99,19 +100,21 @@ export interface ResolveFieldStateOptions {
 }
 
 const IDLE_PARAMS: FieldParams = {
-  dimFactor: 0.8,
-  brightnessLift: 0.03,
+  // M32.31：idle 完全透明 + 释放形态——桌面待机时不占任何视野；
+  // 唤醒后（wake_listening）粒子经 Space.morphTo 从四周汇聚成球。
+  dimFactor: 0,
+  brightnessLift: 0,
   attractor: null,
   orbit: null,
   flowline: null,
   ripple: null,
   dormant: false,
-  particleShape: "sphere",
-  pulseStrength: 0.08,
+  particleShape: null,
+  pulseStrength: 0,
   helixRotSpeed: 0,
-  flickerIntensity: 0.12,
-  flickerSpeed: 0.8,
-  glowBoost: 0.05,
+  flickerIntensity: 0,
+  flickerSpeed: 0,
+  glowBoost: 0,
   sphereScale: 1.0,
 };
 

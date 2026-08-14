@@ -101,7 +101,7 @@ class TestVoiceStatus:
         assert data["running"] is False
         assert data["fake_mode"] is False
         assert data["config"]["sample_rate"] == 16000
-        assert data["config"]["wake_word"] == "hey_omni"
+        assert data["config"]["wake_word"] == "雪莉"
 
     def test_status_reflects_running_pipeline(self, fresh_runtime):
         rt = fresh_runtime
@@ -257,10 +257,18 @@ class TestVoiceConfig:
             "vad_threshold": "0.6",
             "vad_silence_ms": "800",
             "max_record_s": "15",
+            "tts_backend": "openai",
             "tts_voice": "zf_xiaoyi",
+            "tts_speed": "1.2",
+            "tts_ref_audio": "/tmp/ref.wav",
+            "tts_emo_text": "清冷温柔",
+            "tts_emo_alpha": "0.9",
             "system_prompt": "新提示词",
             "llm_model": "qwen3",
             "llm_endpoint": "http://localhost:4000/v1",
+            "asr_endpoint": "http://localhost:9210/v1",
+            "tts_endpoint": "http://localhost:9200",
+            "asr_model": "large-v3",
         }
         for key, value in values.items():
             assert key in RUNTIME_SETTABLE
@@ -269,12 +277,20 @@ class TestVoiceConfig:
         cfg = fresh_runtime.config
         assert cfg.vad_silence_ms == 800
         assert cfg.max_record_s == pytest.approx(15.0)
+        assert cfg.tts_backend == "openai"
+        assert cfg.tts_speed == pytest.approx(1.2)
+        assert cfg.tts_ref_audio == "/tmp/ref.wav"
+        assert cfg.tts_emo_text == "清冷温柔"
+        assert cfg.tts_emo_alpha == pytest.approx(0.9)
         assert cfg.system_prompt == "新提示词"
+        assert cfg.asr_endpoint == "http://localhost:9210/v1"
+        assert cfg.tts_endpoint == "http://localhost:9200"
+        assert cfg.asr_model == "large-v3"
 
     def test_set_non_settable_field_rejected(self, fresh_runtime):
         result = _parse(tools.voice_config(action="set", key="sample_rate", value="8000"))
         assert result["ok"] is False
-        assert "sample_rate" in result["error"]
+        assert "sample_rate" in result["error"]["message"]
 
     def test_set_tts_muted_via_existing_tool(self, fresh_runtime):
         """M6.3：tts_muted 复用既有 voice_config 工具即可设置（不新增 tool）。"""
@@ -294,6 +310,18 @@ class TestVoiceConfig:
         result = _parse(tools.voice_config(action="set", value="0.9"))
         assert result["ok"] is False
 
+    def test_set_empty_key_rejected(self, fresh_runtime):
+        """空字符串 key 与缺省 key 同等拒绝，统一 E_INVALID_PARAMS。"""
+        result = _parse(tools.voice_config(action="set", key="", value="x"))
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+
+    def test_set_none_value_rejected(self, fresh_runtime):
+        """value=None 显式拒绝（防止误置 None）；空字符串 value 仍允许。"""
+        result = _parse(tools.voice_config(action="set", key="wake_threshold", value=None))
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+
     def test_set_invalid_value_rejected_and_config_unchanged(self, fresh_runtime):
         rt = fresh_runtime
         result = _parse(tools.voice_config(action="set", key="wake_threshold", value="2.0"))
@@ -303,7 +331,7 @@ class TestVoiceConfig:
     def test_unknown_action_rejected(self, fresh_runtime):
         result = _parse(tools.voice_config(action="delete"))
         assert result["ok"] is False
-        assert "delete" in result["error"]
+        assert "delete" in result["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +352,7 @@ class TestVoiceSpeak:
     def test_speak_empty_text_rejected(self, fresh_runtime):
         result = _parse(tools.voice_speak("   ", fake=True))
         assert result["ok"] is False
-        assert "text" in result["error"]
+        assert "text" in result["error"]["message"]
 
     def test_speak_backend_error_mapped(self, fresh_runtime, monkeypatch):
         def _boom(config):
@@ -333,7 +361,8 @@ class TestVoiceSpeak:
         monkeypatch.setattr(tools, "_build_real_components", _boom)
         result = _parse(tools.voice_speak("你好"))
         assert result["ok"] is False
-        assert "网关" in result["error"]
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "网关" in result["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +442,16 @@ class TestVoiceListenOnce:
         assert rt.pipeline.is_running
         assert _wait_until(lambda: rt.pipeline.state == PipelineState.WAKE_LISTENING)
 
+    def test_listen_once_backend_error_returns_unavailable(self, fresh_runtime, monkeypatch):
+        def _boom(config):
+            raise VoiceBackendError("音频采集需要 sounddevice")
+
+        monkeypatch.setattr(tools, "_build_real_components", _boom)
+        result = _parse(tools.voice_listen_once())
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "sounddevice" in result["error"]["message"]
+
 
 # ---------------------------------------------------------------------------
 # voice_pipeline_start / voice_pipeline_stop
@@ -438,7 +477,7 @@ class TestVoicePipelineLifecycle:
         _parse(tools.voice_pipeline_start(fake=True))
         again = _parse(tools.voice_pipeline_start(fake=True))
         assert again["ok"] is False
-        assert "运行" in again["error"]
+        assert "运行" in again["error"]["message"]
 
     def test_stop_without_start_is_ok(self, fresh_runtime):
         result = _parse(tools.voice_pipeline_stop())
@@ -468,7 +507,8 @@ class TestVoicePipelineLifecycle:
         assert "voice.transcript" in types
         assert "voice.reply" in types
         assert comps["agent"].messages == ["端到端"]
-        assert comps["tts"].texts[-1] == "链路通了"
+        # 唤醒应答与 Agent 回复都可能进 TTS；异步线程中两者顺序不保证，改为集合断言避免 flakes
+        assert set(comps["tts"].texts) >= {"我在", "链路通了"}
 
     def test_start_backend_error_mapped(self, fresh_runtime, monkeypatch):
         def _boom(config):
@@ -477,7 +517,8 @@ class TestVoicePipelineLifecycle:
         monkeypatch.setattr(tools, "_build_real_components", _boom)
         result = _parse(tools.voice_pipeline_start())
         assert result["ok"] is False
-        assert "sounddevice" in result["error"]
+        assert result["error"]["code"] == "E_BACKEND_UNAVAILABLE"
+        assert "sounddevice" in result["error"]["message"]
         assert fresh_runtime.pipeline is None
 
 
@@ -626,6 +667,165 @@ class TestComponentBuilding:
         assert tools._components(rt, fake=False) is sentinel
         assert _spy.config is rt.config
         assert rt.fake_mode is False
+
+    def test_real_components_select_indextts2_by_default(
+        self, fresh_runtime, monkeypatch
+    ):
+        """默认 tts_backend=indextts2 时应构造 IndexTTS2。"""
+        rt = fresh_runtime
+        captured: dict[str, Any] = {}
+
+        class _FakeIndexTTS2:
+            def __init__(
+                self,
+                endpoint: str,
+                voice: str = "default",
+                speed: float = 1.0,
+                ref_audio: str | bytes | None = None,
+                emo_text: str | None = None,
+                emo_alpha: float | None = None,
+                style: str | None = None,
+            ):
+                captured["endpoint"] = endpoint
+                captured["voice"] = voice
+                captured["speed"] = speed
+                captured["ref_audio"] = ref_audio
+                captured["emo_text"] = emo_text
+                captured["emo_alpha"] = emo_alpha
+                captured["style"] = style
+
+        class _FakePlayer:
+            def __init__(self, sample_rate: int):
+                pass
+
+        monkeypatch.setattr("omni_voice.backends.indextts2_tts.IndexTTS2", _FakeIndexTTS2)
+        monkeypatch.setattr("omni_voice.backends.openai_tts.OpenAITTS", object)
+        monkeypatch.setattr("omni_voice.audio.SounddevicePlayer", _FakePlayer)
+        monkeypatch.setattr("omni_voice.audio.SounddeviceSource", object)
+        comps = tools._build_real_components(rt.config)
+        assert captured["endpoint"] == rt.config.tts_endpoint
+        assert captured["voice"] == rt.config.tts_voice
+        assert captured["speed"] == rt.config.tts_speed
+        assert captured["ref_audio"] == rt.config.tts_ref_audio
+        # M32.30：默认未显式 emo_text，装配传 None，语气提示词由 style 预设
+        # （默认 calm 日常冷静款）提供；emo_alpha 同理由 style 强度决定。
+        assert captured["emo_text"] is None
+        assert captured["emo_alpha"] is None
+        assert captured["style"] == rt.config.tts_style
+        assert "tts" in comps
+
+    def test_real_components_passes_emo_text_when_configured(
+        self, fresh_runtime, monkeypatch
+    ):
+        """M32.19：配置非空 emo_text 时，IndexTTS2 应收到该字符串。"""
+        rt = fresh_runtime
+        emo = "清冷温柔，略带忧伤"
+        rt.config = VoiceConfig.from_dict({"tts_emo_text": emo})
+        captured: dict[str, Any] = {}
+
+        class _FakeIndexTTS2:
+            def __init__(
+                self,
+                endpoint: str,
+                voice: str = "default",
+                speed: float = 1.0,
+                ref_audio: str | bytes | None = None,
+                emo_text: str | None = None,
+                emo_alpha: float | None = None,
+                style: str | None = None,
+            ):
+                captured["emo_text"] = emo_text
+
+        class _FakePlayer:
+            def __init__(self, sample_rate: int):
+                pass
+
+        monkeypatch.setattr("omni_voice.backends.indextts2_tts.IndexTTS2", _FakeIndexTTS2)
+        monkeypatch.setattr("omni_voice.audio.SounddevicePlayer", _FakePlayer)
+        monkeypatch.setattr("omni_voice.audio.SounddeviceSource", object)
+        tools._build_real_components(rt.config)
+        assert captured["emo_text"] == emo
+
+    def test_real_components_passes_asr_prompt(self, fresh_runtime, monkeypatch):
+        """M32.29：OpenAIASR 应收到 config.asr_prompt（唤醒词识别偏置）。
+
+        线上事故回归：prompt 参数已实现但未接入装配，喊「雪莉」被转写为
+        Siri 后热词校验失败；接入后 faster-whisper 得到上下文偏置。
+        """
+        rt = fresh_runtime
+        captured: dict[str, Any] = {}
+
+        class _FakeASR:
+            def __init__(self, endpoint: str, model: str = "whisper-1", prompt=None):
+                captured["endpoint"] = endpoint
+                captured["model"] = model
+                captured["prompt"] = prompt
+
+        class _FakePlayer:
+            def __init__(self, sample_rate: int):
+                pass
+
+        monkeypatch.setattr("omni_voice.backends.openai_asr.OpenAIASR", _FakeASR)
+        monkeypatch.setattr("omni_voice.audio.SounddevicePlayer", _FakePlayer)
+        monkeypatch.setattr("omni_voice.audio.SounddeviceSource", object)
+        comps = tools._build_real_components(rt.config)
+        assert captured["endpoint"] == rt.config.asr_endpoint
+        assert captured["model"] == rt.config.asr_model
+        assert captured["prompt"] == rt.config.asr_prompt
+        assert rt.config.asr_prompt  # 默认非空（含唤醒词上下文）
+        assert "asr" in comps
+
+    def test_real_components_empty_asr_prompt_normalized_to_none(
+        self, fresh_runtime, monkeypatch
+    ):
+        """asr_prompt 置空时规范化为 None，OpenAIASR 不上传 prompt 字段。"""
+        rt = fresh_runtime
+        rt.config = VoiceConfig.from_dict({"asr_prompt": ""})
+        captured: dict[str, Any] = {}
+
+        class _FakeASR:
+            def __init__(self, endpoint: str, model: str = "whisper-1", prompt=None):
+                captured["prompt"] = prompt
+
+        class _FakePlayer:
+            def __init__(self, sample_rate: int):
+                pass
+
+        monkeypatch.setattr("omni_voice.backends.openai_asr.OpenAIASR", _FakeASR)
+        monkeypatch.setattr("omni_voice.audio.SounddevicePlayer", _FakePlayer)
+        monkeypatch.setattr("omni_voice.audio.SounddeviceSource", object)
+        tools._build_real_components(rt.config)
+        assert captured["prompt"] is None
+
+    def test_real_components_select_openai_when_configured(
+        self, fresh_runtime, monkeypatch
+    ):
+        """tts_backend=openai 时应构造 OpenAITTS。"""
+        rt = fresh_runtime
+        rt.config = VoiceConfig.from_dict(
+            {**rt.config.summary(), "tts_backend": "openai", "tts_voice": "alloy"}
+        )
+        captured: dict[str, Any] = {}
+
+        class _FakeOpenAITTS:
+            def __init__(self, endpoint: str, voice: str, model: str):
+                captured["endpoint"] = endpoint
+                captured["voice"] = voice
+                captured["model"] = model
+
+        class _FakePlayer:
+            def __init__(self, sample_rate: int):
+                pass
+
+        monkeypatch.setattr("omni_voice.backends.indextts2_tts.IndexTTS2", object)
+        monkeypatch.setattr("omni_voice.backends.openai_tts.OpenAITTS", _FakeOpenAITTS)
+        monkeypatch.setattr("omni_voice.audio.SounddevicePlayer", _FakePlayer)
+        monkeypatch.setattr("omni_voice.audio.SounddeviceSource", object)
+        comps = tools._build_real_components(rt.config)
+        assert captured["endpoint"] == rt.config.tts_endpoint
+        assert captured["voice"] == "alloy"
+        assert captured["model"] == "tts-1"
+        assert "tts" in comps
 
 
 # ---------------------------------------------------------------------------

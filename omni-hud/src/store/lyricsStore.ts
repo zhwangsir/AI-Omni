@@ -289,6 +289,11 @@ export interface LyricsStore {
   uploadLyrics: (songId: string, lrcText: string) => Promise<string | null>;
   /** 清空当前歌词与行索引（切歌时调用）；保留 offsetS（用户偏好）。 */
   clear: () => void;
+  /**
+   * E2E / 演示专用：直接注入歌词结果，绕过 IPC。
+   * 生产路径不应调用——仅供 __omniDebug 与非 Tauri 预览注入快照。
+   */
+  debugSetLyrics: (lyrics: LyricsResult | null) => void;
 }
 
 /** lyrics_search 返回的精简歌曲元数据（仅含定位所需字段）。 */
@@ -440,6 +445,17 @@ export function createLyricsStore(deps: LyricsStoreDeps = {}): LyricsStore {
         currentLyrics: null,
         currentIndex: -1,
         currentWordIndex: null,
+        error: null,
+      });
+    },
+    debugSetLyrics(lyrics) {
+      // 演示 / E2E 注入：等价于 fetchLyrics 成功路径的 patch，但绕过 IPC
+      // 且不清 offsetS（用户偏好）。null 注入等价于 clear + 清错误。
+      patch({
+        currentLyrics: lyrics,
+        currentIndex: -1,
+        currentWordIndex: null,
+        isLoading: false,
         error: null,
       });
     },

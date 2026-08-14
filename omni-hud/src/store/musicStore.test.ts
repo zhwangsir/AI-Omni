@@ -103,6 +103,80 @@ describe("musicStore 初始状态", () => {
   });
 });
 
+describe("searchOnline（M32.29b 在线搜索）", () => {
+  const okSearch = (songs: unknown[]): MusicToolResult<unknown> => ({
+    ok: true,
+    data: { songs, count: songs.length },
+  });
+
+  it("成功：调 music_search 并写入归一化 onlineResults（非法条目被过滤）", async () => {
+    const { invoker, calls } = makeFakeInvoker({
+      results: {
+        music_search: okSearch([
+          makeSongDict({ id: "s1", name: "晴天" }),
+          makeSongDict({ id: "s2", name: "稻香" }),
+          { id: "", name: "" }, // 非法：无 source
+          "garbage",
+        ]),
+      },
+    });
+    const store = createMusicStore({ invoker });
+    await store.searchOnline("周杰伦");
+    expect(calls[0]?.tool).toBe("music_search");
+    expect(calls[0]?.args).toEqual({ keyword: "周杰伦", limit: 20 });
+    const results = store.getState().onlineResults;
+    expect(results).toHaveLength(2);
+    expect(results?.[0]?.name).toBe("晴天");
+    expect(results?.[1]?.name).toBe("稻香");
+    expect(store.getState().error).toBeNull();
+  });
+
+  it("空关键词 / 纯空白：不发请求，清空 onlineResults", async () => {
+    const { invoker, calls } = makeFakeInvoker({
+      results: { music_search: okSearch([makeSongDict()]) },
+    });
+    const store = createMusicStore({ invoker });
+    await store.searchOnline("晴天");
+    expect(store.getState().onlineResults).toHaveLength(1);
+    await store.searchOnline("   ");
+    expect(calls).toHaveLength(1); // 未发第二次请求
+    expect(store.getState().onlineResults).toBeNull();
+  });
+
+  it("工具失败：写 error，onlineResults 置 null", async () => {
+    const { invoker } = makeFakeInvoker({
+      results: {
+        music_search: { ok: false, error: { code: "E_SEARCH_FAILED", message: "源故障" } },
+      },
+    });
+    const store = createMusicStore({ invoker });
+    await store.searchOnline("周杰伦");
+    expect(store.getState().onlineResults).toBeNull();
+    expect(store.getState().error).toBe("源故障");
+  });
+
+  it("data 结构非法（songs 非数组）：写 error，onlineResults 置 null", async () => {
+    const { invoker } = makeFakeInvoker({
+      results: { music_search: { ok: true, data: { songs: 42 } } },
+    });
+    const store = createMusicStore({ invoker });
+    await store.searchOnline("周杰伦");
+    expect(store.getState().onlineResults).toBeNull();
+    expect(store.getState().error).not.toBeNull();
+  });
+
+  it("clearOnlineResults 复位为 null", async () => {
+    const { invoker } = makeFakeInvoker({
+      results: { music_search: okSearch([makeSongDict()]) },
+    });
+    const store = createMusicStore({ invoker });
+    await store.searchOnline("晴天");
+    expect(store.getState().onlineResults).toHaveLength(1);
+    store.clearOnlineResults();
+    expect(store.getState().onlineResults).toBeNull();
+  });
+});
+
 describe("musicStore subscribe", () => {
   it("状态变化时通知 listener", async () => {
     const { invoker } = makeFakeInvoker({

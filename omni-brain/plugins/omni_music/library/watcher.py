@@ -130,6 +130,7 @@ class LibraryWatcher:
 
     def _schedule_debounce(self, kind: str, path: str) -> None:
         """把事件加入防抖缓冲，并（重新）启动防抖定时器。"""
+        callbacks: list[tuple[Callable[[str], None] | None, str]] = []
         with self._lock:
             if kind == "added":
                 self._pending_added.add(path)
@@ -141,22 +142,31 @@ class LibraryWatcher:
             if self._debounce_timer is not None:
                 self._debounce_timer.cancel()
             if self.debounce_ms <= 0:
-                # 无防抖，立即刷新
-                self._flush_locked()
+                # 无防抖，立即刷新（锁内只拿快照，回调在锁外执行）
+                callbacks = self._flush_locked()
             else:
                 self._debounce_timer = threading.Timer(
                     self.debounce_ms / 1000.0, self._flush_debounce
                 )
                 self._debounce_timer.daemon = True
                 self._debounce_timer.start()
+        self._run_callbacks(callbacks)
 
     def _flush_debounce(self) -> None:
         """刷新防抖缓冲（定时器到期调用 / 测试强制调用）。"""
         with self._lock:
-            self._flush_locked()
+            callbacks = self._flush_locked()
+        self._run_callbacks(callbacks)
 
-    def _flush_locked(self) -> None:
-        """在已持锁状态下刷新缓冲并触发回调。"""
+    def _flush_locked(self) -> list[tuple[Callable[[str], None] | None, str]]:
+        """在已持锁状态下快照缓冲，返回待执行的 ``(回调, 路径)`` 列表。
+
+        M32.26 修复：``self._lock`` 为不可重入锁，此前本方法在锁内直接调用
+        用户回调——回调里重入 watcher（如 ``stop()`` / ``_schedule_debounce``）
+        会二次获取同一把锁造成同线程死锁。现在锁内只做快照（收集回调、清空
+        pending、取消定时器），回调统一由调用方在锁外经 :meth:`_run_callbacks`
+        执行。
+        """
         added = list(self._pending_added)
         removed = list(self._pending_removed)
         modified = list(self._pending_modified)
@@ -166,14 +176,18 @@ class LibraryWatcher:
         if self._debounce_timer is not None:
             self._debounce_timer.cancel()
             self._debounce_timer = None
-        # 在锁外触发回调（避免回调中再次取锁死锁）
-        # 这里仍在锁内，但回调通常不回调 watcher，可接受
-        for p in added:
-            self._safe_call(self.on_added, p)
-        for p in removed:
-            self._safe_call(self.on_removed, p)
-        for p in modified:
-            self._safe_call(self.on_modified, p)
+        callbacks: list[tuple[Callable[[str], None] | None, str]] = []
+        callbacks.extend((self.on_added, p) for p in added)
+        callbacks.extend((self.on_removed, p) for p in removed)
+        callbacks.extend((self.on_modified, p) for p in modified)
+        return callbacks
+
+    def _run_callbacks(
+        self, callbacks: list[tuple[Callable[[str], None] | None, str]]
+    ) -> None:
+        """在锁外执行快照回调（M32.26：回调可安全重入 watcher，不死锁）。"""
+        for cb, p in callbacks:
+            self._safe_call(cb, p)
 
     @staticmethod
     def _safe_call(cb: Callable[[str], None] | None, path: str) -> None:

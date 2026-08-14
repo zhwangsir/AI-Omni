@@ -15,8 +15,8 @@ export const SHAPE_RADIUS = 2.2;
 
 /** morph 过渡时长下限：成形 / 消散都必须 ≥600ms 缓动（审美红线：禁瞬跳）。 */
 export const MORPH_MIN_MS = 600;
-/** 默认过渡时长：略长于下限，spring 感的从容节奏。 */
-export const MORPH_DEFAULT_MS = 750;
+/** 默认过渡时长：唤醒从四周汇聚需要明显的仪式感，900ms 从容成形。 */
+export const MORPH_DEFAULT_MS = 900;
 
 /** 类型守卫：运行时校验形状名。 */
 export function isShapeKind(value: unknown): value is ShapeKind {

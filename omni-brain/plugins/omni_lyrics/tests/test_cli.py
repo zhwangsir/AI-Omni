@@ -121,6 +121,39 @@ class TestNamedSubcommands:
         assert payload["ok"] is True
         assert payload["data"]["source"] == "local_file"
 
+    def test_get_missing_song_id_returns_json_invalid_params(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """get 缺 --song-id 返回 E_INVALID_PARAMS JSON。"""
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["get"])
+        assert exc.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "E_INVALID_PARAMS"
+
+    def test_search_missing_keyword_returns_json_invalid_params(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """search 缺 keyword 返回 E_INVALID_PARAMS JSON。"""
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["search"])
+        assert exc.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "E_INVALID_PARAMS"
+
+    def test_current_missing_required_returns_json_invalid_params(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """current 缺 --time 返回 E_INVALID_PARAMS JSON。"""
+        with pytest.raises(SystemExit) as exc:
+            cli.main(["current", "--song-id", "s1"])
+        assert exc.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "E_INVALID_PARAMS"
+
     def test_search_subcommand(self, capsys: pytest.CaptureFixture[str]) -> None:
         """search KEYWORD 返回歌曲列表。"""
         _setup_fake_source()

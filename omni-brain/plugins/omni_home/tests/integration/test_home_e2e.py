@@ -122,7 +122,7 @@ class TestE2EFlow:
 
         missing = ctx.call("home_control", {"command": "打开阁楼灯", "fake": True})
         assert missing["ok"] is False
-        assert "找不到" in missing["error"]
+        assert "找不到" in missing["error"]["message"]
 
         bad_config = ctx.call("home_config", {"action": "set", "key": "ha_url", "value": "ftp://x"})
         assert bad_config["ok"] is False

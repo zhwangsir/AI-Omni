@@ -73,8 +73,9 @@ def _ok(data: Any) -> str:
     return json.dumps({"ok": True, "data": data}, ensure_ascii=False)
 
 
-def _err(message: str) -> str:
-    return json.dumps({"ok": False, "error": message}, ensure_ascii=False)
+def _err(message: str, code: str = "E_UNKNOWN") -> str:
+    """构造标准错误返回：error 字段为 {code, message} 对象。"""
+    return json.dumps({"ok": False, "error": {"code": code, "message": message}}, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

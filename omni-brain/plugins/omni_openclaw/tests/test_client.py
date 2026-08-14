@@ -2,12 +2,63 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from typing import Any
 
 import pytest
 
-from omni_openclaw.client import OpenClawClient
+from omni_openclaw.client import HttpxBackend, OpenClawClient
 from omni_openclaw.config import OpenClawConfig
+
+
+class _FakeHttpResponse:
+    """模拟 httpx Response 的最小接口。"""
+
+    def __init__(
+        self,
+        status_code: int = 200,
+        json_data: Any = None,
+        text: str = "",
+        json_raises: bool = False,
+    ) -> None:
+        self.status_code = status_code
+        self.text = text
+        self._json_data = json_data
+        self._json_raises = json_raises
+
+    def json(self) -> Any:
+        """返回预置 JSON 数据；``json_raises`` 时模拟解析失败。"""
+        if self._json_raises:
+            raise ValueError("invalid json")
+        return self._json_data
+
+
+def _install_fake_httpx(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """向 sys.modules 注入 fake httpx，返回已创建的 AsyncClient 实例列表。"""
+    created: list[Any] = []
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+            self.requests: list[dict[str, Any]] = []
+            self.responses: list[_FakeHttpResponse] = []
+            self.closed = False
+            created.append(self)
+
+        async def request(
+            self, method: str, url: str, **kwargs: Any
+        ) -> _FakeHttpResponse:
+            self.requests.append({"method": method, "url": url, "kwargs": kwargs})
+            return self.responses.pop(0)
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(
+        sys.modules, "httpx", types.SimpleNamespace(AsyncClient=FakeAsyncClient)
+    )
+    return created
 
 
 class FakeBackend:
@@ -100,6 +151,19 @@ class TestHealthCheck:
         assert result["ok"] is False
         assert result["error"]["code"] == "E_GATEWAY_UNAVAILABLE"
 
+    @pytest.mark.asyncio
+    async def test_health_generic_error(self, client: OpenClawClient, fake_backend: FakeBackend) -> None:
+        """后端抛出非网络类异常时应返回 E_GATEWAY_UNAVAILABLE 并携带错误详情。"""
+
+        async def raise_value_error(*args: Any, **kwargs: Any) -> Any:
+            raise ValueError("unexpected payload")
+
+        fake_backend.request = raise_value_error  # type: ignore[assignment]
+        result = await client.health_check()
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_GATEWAY_UNAVAILABLE"
+        assert "unexpected payload" in result["error"]["message"]
+
 
 class TestWeChatSend:
     """微信消息发送测试（经 wechat-bridge）。"""
@@ -172,6 +236,39 @@ class TestWeChatSend:
         assert result["error"]["code"] == "E_INVALID_PARAMS"
         assert wechat_bridge_backend.calls == []
 
+    @pytest.mark.asyncio
+    async def test_send_wechat_timeout(
+        self,
+        client: OpenClawClient,
+        wechat_bridge_backend: FakeBackend,
+    ) -> None:
+        """wechat-bridge 超时或连接失败时应返回 E_WECHAT_BRIDGE_UNAVAILABLE。"""
+
+        async def raise_timeout(*args: Any, **kwargs: Any) -> Any:
+            raise TimeoutError("connection timeout")
+
+        wechat_bridge_backend.request = raise_timeout  # type: ignore[assignment]
+        result = await client.send_wechat_message(message="超时测试")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_WECHAT_BRIDGE_UNAVAILABLE"
+
+    @pytest.mark.asyncio
+    async def test_send_wechat_generic_error(
+        self,
+        client: OpenClawClient,
+        wechat_bridge_backend: FakeBackend,
+    ) -> None:
+        """wechat-bridge 抛出非网络类异常时应返回 E_WECHAT_BRIDGE_ERROR 并携带错误详情。"""
+
+        async def raise_value_error(*args: Any, **kwargs: Any) -> Any:
+            raise ValueError("bridge exploded")
+
+        wechat_bridge_backend.request = raise_value_error  # type: ignore[assignment]
+        result = await client.send_wechat_message(message="异常测试")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_WECHAT_BRIDGE_ERROR"
+        assert "bridge exploded" in result["error"]["message"]
+
 
 class TestMultimodalChat:
     """多模态 Nemotron 调用测试。"""
@@ -209,13 +306,13 @@ class TestMultimodalChat:
         )
         assert result["ok"] is True
         assert result["content"] == "图中有一只猫。"
-        assert result["model"] == "qwen3.6-uncensored"
+        assert result["model"] == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
 
         call = llm_backend.calls[-1]
         assert call["method"] == "POST"
         assert call["path"] == "/chat/completions"
         payload = call["kwargs"]["json"]
-        assert payload["model"] == "qwen3.6-uncensored"
+        assert payload["model"] == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
         assert payload["messages"][0]["role"] == "user"
         content = payload["messages"][0]["content"]
         assert content[0]["type"] == "text"
@@ -250,6 +347,66 @@ class TestMultimodalChat:
         result = await multimodal_client.vision_chat(prompt="", image_base64_or_url="x")
         assert result["ok"] is False
         assert result["error"]["code"] == "E_INVALID_PARAMS"
+
+    @pytest.mark.asyncio
+    async def test_vision_chat_rejects_empty_image(
+        self,
+        multimodal_client: OpenClawClient,
+        llm_backend: FakeBackend,
+    ) -> None:
+        """空 image 应返回参数错误，不调用 LLM。"""
+        result = await multimodal_client.vision_chat(prompt="描述", image_base64_or_url="  ")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+        assert llm_backend.calls == []
+
+    @pytest.mark.asyncio
+    async def test_audio_chat_rejects_empty_prompt(
+        self,
+        multimodal_client: OpenClawClient,
+        llm_backend: FakeBackend,
+    ) -> None:
+        """空 prompt 应返回参数错误，不调用 LLM。"""
+        result = await multimodal_client.audio_chat(prompt="", audio_base64="x")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+        assert llm_backend.calls == []
+
+    @pytest.mark.asyncio
+    async def test_audio_chat_rejects_empty_audio(
+        self,
+        multimodal_client: OpenClawClient,
+        llm_backend: FakeBackend,
+    ) -> None:
+        """空 audio 应返回参数错误，不调用 LLM。"""
+        result = await multimodal_client.audio_chat(prompt="测试", audio_base64="  ")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+        assert llm_backend.calls == []
+
+    @pytest.mark.asyncio
+    async def test_video_chat_rejects_empty_prompt(
+        self,
+        multimodal_client: OpenClawClient,
+        llm_backend: FakeBackend,
+    ) -> None:
+        """空 prompt 应返回参数错误，不调用 LLM。"""
+        result = await multimodal_client.video_chat(prompt="", video_base64_or_url="x")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+        assert llm_backend.calls == []
+
+    @pytest.mark.asyncio
+    async def test_video_chat_rejects_empty_video(
+        self,
+        multimodal_client: OpenClawClient,
+        llm_backend: FakeBackend,
+    ) -> None:
+        """空 video 应返回参数错误，不调用 LLM。"""
+        result = await multimodal_client.video_chat(prompt="测试", video_base64_or_url="  ")
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+        assert llm_backend.calls == []
 
     @pytest.mark.asyncio
     async def test_audio_chat(
@@ -333,3 +490,62 @@ class TestMultimodalChat:
         )
         assert result["ok"] is False
         assert result["error"]["code"] == "E_LLM_UNAVAILABLE"
+
+    @pytest.mark.asyncio
+    async def test_chat_completion_generic_error(
+        self,
+        multimodal_client: OpenClawClient,
+        llm_backend: FakeBackend,
+    ) -> None:
+        """LLM 端点抛出非网络类异常时应返回 E_LLM_UNAVAILABLE 并携带错误详情。"""
+
+        async def raise_value_error(*args: Any, **kwargs: Any) -> Any:
+            raise ValueError("boom")
+
+        llm_backend.request = raise_value_error  # type: ignore[assignment]
+        result = await multimodal_client.audio_chat(
+            prompt="测试",
+            audio_base64="x",
+        )
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_LLM_UNAVAILABLE"
+        assert "boom" in result["error"]["message"]
+
+
+class TestHttpxBackend:
+    """真实 HttpxBackend 包装层测试（httpx 已 fake 注入，不触碰网络）。"""
+
+    @pytest.mark.asyncio
+    async def test_request_parses_json(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """可解析 JSON 的响应应返回字典，base_url 末尾斜杠应被去除。"""
+        created = _install_fake_httpx(monkeypatch)
+        backend = HttpxBackend(OpenClawConfig(), base_url="http://gw:18789/")
+        created[0].responses.append(
+            _FakeHttpResponse(status_code=200, json_data={"status": "ok"})
+        )
+        status, body = await backend.request("GET", "/health")
+        assert status == 200
+        assert body == {"status": "ok"}
+
+        client = created[0]
+        assert client.kwargs["base_url"] == "http://gw:18789"
+        assert client.requests[-1]["method"] == "GET"
+        assert client.requests[-1]["url"] == "/health"
+
+    @pytest.mark.asyncio
+    async def test_request_falls_back_to_text_when_not_json(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """响应体非 JSON 时应降级返回文本。"""
+        created = _install_fake_httpx(monkeypatch)
+        backend = HttpxBackend(OpenClawConfig())
+        created[0].responses.append(
+            _FakeHttpResponse(status_code=502, text="Bad Gateway", json_raises=True)
+        )
+        status, body = await backend.request("GET", "/health")
+        assert status == 502
+        assert body == "Bad Gateway"

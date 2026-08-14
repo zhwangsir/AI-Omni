@@ -76,11 +76,15 @@ class HomeAssistantClient:
             with self._opener(req, self._config.read_timeout) as resp:
                 raw = resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
-            if exc.code in (401, 403):
+            code = exc.code
+            # M32.23：关闭异常持有的底层响应资源（Python 3.14 起未关闭触发
+            # ResourceWarning；真实运行时对应未释放的 socket 连接）。
+            exc.close()
+            if code in (401, 403):
                 raise HomeAuthError(
-                    f"Home Assistant 认证失败（HTTP {exc.code}），请检查 ha_token"
+                    f"Home Assistant 认证失败（HTTP {code}），请检查 ha_token"
                 ) from exc
-            raise HomeError(f"Home Assistant 请求失败（HTTP {exc.code}）: {path}") from exc
+            raise HomeError(f"Home Assistant 请求失败（HTTP {code}）: {path}") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise HomeConnectionError(
                 f"无法连接 Home Assistant（{self._config.ha_url}）: {exc}"

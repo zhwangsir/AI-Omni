@@ -26,6 +26,7 @@ function makeFakeStore(opts: {
     // 显式区分 undefined（用默认）与 null（无二维码）
     loginQr: opts.loginQr !== undefined ? opts.loginQr : FAKE_QR,
     loginStatus: opts.loginStatus ?? "waiting",
+    onlineResults: null,
   };
   const listeners = new Set<() => void>();
   const actions = {

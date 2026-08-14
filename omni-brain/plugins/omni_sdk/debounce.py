@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,9 @@ class DebouncedWriter:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
-            self._do_flush()
+        # _do_flush 内部会自行取锁弹数据，必须在锁外调用：
+        # self._lock 为不可重入锁，锁内调用会二次获取导致死锁（M32.25 修复）
+        self._do_flush()
 
     def _do_flush(self) -> None:
         """实际执行写入（内部方法，锁外调用）。"""
@@ -69,14 +70,20 @@ class DebouncedWriter:
                 data_to_write = self._pending_data
                 self._pending_data = None
                 self._timer = None
+        write_ok = False
+        # writer_func 保持在锁外调用：避免用户回调里再调 write/flush 造成死锁
         if data_to_write is not None and self._writer_func is not None:
             try:
                 self._writer_func(data_to_write)
-                self._write_count += 1
-                self._last_write_time = time.time()
+                write_ok = True
             except Exception:
                 logger.debug("DebouncedWriter 写入失败", exc_info=True)
-        self._flush_count += 1
+        # 计数更新收回锁内，与 stats() 的锁内读取保持一致（M32.25 修复统计竞态）
+        with self._lock:
+            if write_ok:
+                self._write_count += 1
+                self._last_write_time = time.time()
+            self._flush_count += 1
 
     def stats(self) -> dict[str, Any]:
         """返回统计信息（用于测试和诊断）。"""

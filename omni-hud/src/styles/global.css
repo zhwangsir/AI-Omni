@@ -304,7 +304,10 @@ body.tauri-env {
   border-color: var(--omni-accent);
 }
 
-/* WellZone：底部居中椭圆区（约 320×180，距底 72px 避开紧凑面板）。 */
+/* WellZone：底部居中椭圆区（约 320×180，距底 72px 避开紧凑面板）。
+ * 容器需 pointer-events:auto——为 none 时真实鼠标命中测试穿透到 .hud-content，
+ * onPointerEnter 永不触发，控制环无法悬停显影（环内子元素仅在 hover 后渲染）。
+ * hud-content 的吸引子/水波纹走事件冒泡，不受影响。 */
 .well-zone {
   position: absolute;
   bottom: 72px;
@@ -312,7 +315,7 @@ body.tauri-env {
   width: 320px;
   height: 180px;
   transform: translateX(-50%);
-  pointer-events: none;
+  pointer-events: auto;
   z-index: 3;
   display: flex;
   align-items: center;
@@ -461,6 +464,41 @@ body.tauri-env {
 .well-caption-reply {
   color: var(--omni-fog);
   line-height: 1.4;
+}
+
+/* M32.29a caption 卡 meta 行：home/system 摘要，克制暗房风次级信息 */
+.well-caption-meta {
+  color: var(--omni-dim);
+  font-size: 10px;
+  line-height: 1.4;
+  border-top: 1px solid var(--omni-hairline);
+  padding-top: 4px;
+}
+
+/* M17/M18 音乐 UI 右停靠列：PlayControlBar / NowPlaying / QueueList / 歌词面板
+ * 纵向卡片栈。fixed 定位——作为 .hud-root 流内子元素会排在 100% 高度的
+ * .hud-content 之后而落在视口外。容器自身不拦截指针（子元素各自开启，
+ * 歌词面板内联 pointer-events:none 保持非交互），z-index 低于底部面板。 */
+.music-dock {
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 320px;
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 9;
+  pointer-events: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(216, 217, 220, 0.18) transparent;
+}
+
+.music-dock > * {
+  flex-shrink: 0;
+  pointer-events: auto;
 }
 
 
@@ -868,6 +906,27 @@ body.tauri-env {
     animation: none !important;
     opacity: 1;
     transform: none;
+  }
+}
+
+.agent-panel-indicator-active {
+  animation: agent-indicator-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes agent-indicator-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-indicator-active {
+    animation: none;
   }
 }
 

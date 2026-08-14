@@ -22,7 +22,7 @@ import { CaptionLayer } from "./components/CaptionLayer";
 import { FieldStage } from "./components/FieldStage";
 import { ImmersiveSpace } from "./components/ImmersiveSpace";
 import { LyricsDisplay } from "./components/lyrics";
-import { LibraryView, NowPlaying, PlayControlBar, QueueList } from "./components/music";
+import { AudioPlayer, LibraryView, NowPlaying, PlayControlBar, QueueList } from "./components/music";
 import { MiniBar } from "./components/MiniBar";
 import { ShelfView } from "./components/ShelfView";
 import { WallpaperZones } from "./components/WallpaperZones";
@@ -221,6 +221,17 @@ export function App() {
           setRepeatMode: (mode: "single" | "list_loop" | "random" | "sequence") =>
             musicStore.setRepeatMode(mode),
           getState: () => musicStore.getState(),
+          // 演示 / 截图专用：绕过 IPC 直接注入播放器快照（非 Tauri 预览环境可用）
+          debugSetPlayerState: (playerState: unknown) =>
+            musicStore.debugSetPlayerState(playerState as never),
+        },
+        // M39 演示截图入口：直接驱动字幕卡（begin/appendChunk 无定时器，定格展示）
+        subtitle: {
+          begin: () => subtitleStore.begin(),
+          appendChunk: (chunk: string) => subtitleStore.appendChunk(chunk),
+          finish: (fullText?: string) => subtitleStore.finish(fullText),
+          hide: () => subtitleStore.hide(),
+          getState: () => subtitleStore.getState(),
         },
         lyrics: {
           fetchLyrics: (songId: string, source?: "local_file" | "embedded" | "online" | "none") =>
@@ -228,6 +239,9 @@ export function App() {
           refreshCurrentLine: (positionS: number) =>
             lyricsStore.refreshCurrentLine(positionS),
           clear: () => lyricsStore.clear(),
+          // 演示 / 截图专用：绕过 IPC 直接注入歌词快照（非 Tauri 预览环境可用）
+          debugSetLyrics: (lyrics: unknown) =>
+            lyricsStore.debugSetLyrics(lyrics as never),
           getState: () => lyricsStore.getState(),
         },
         // M13.5 E2E 测试入口：暴露 agentStore 控制能力，让 spec 可经
@@ -277,7 +291,7 @@ export function App() {
       (window as unknown as { __omniDebug: typeof debugApi }).__omniDebug = debugApi;
       console.log("[omni-hud] Debug API available: window.__omniDebug\n  .idle() .wake() .listen() .think() .tool() .speak() .follow()\n  .music.fetchPlayerState() .music.play() .music.pause() .music.next() .music.previous()\n  .lyrics.fetchLyrics(songId) .lyrics.refreshCurrentLine(pos)\n  .hud.getFieldMode() .hud.setFieldMode(mode) .hud.toggleFieldMode()\n  .weather.refresh() .weather.getMood()\n  .library.scanLibrary() .library.searchLibrary(q) .library.fetchPlaylists() .library.fetchStatus()\n  .library.createPlaylist(name) .library.addToPlaylist(pid, sid) .library.removeFromPlaylist(pid, sid)\n  .mountLibraryView() .unmountLibraryView()");
     }
-  }, [store, musicStore, lyricsStore, libraryStore, weatherStore, agentStore]);
+  }, [store, musicStore, lyricsStore, libraryStore, weatherStore, agentStore, subtitleStore]);
 
   // 页面隐藏时暂停轮询、重新可见恢复。
   useEffect(() => bindVisibilityPause(statusStore), [statusStore]);
@@ -419,16 +433,24 @@ export function App() {
       {/* M17 音乐控制 UI：Full 模式下挂载播放控制条 + 当前曲目信息卡 + 队列列表。
           组件内部对空状态有占位渲染（data-empty="true"），无 current_song 时
           显示「未在播放」/「队列为空」，不阻塞其他 UI。E2E 经 __omniDebug.music
-          触发 fetchPlayerState() 拉取后端状态。 */}
-      <PlayControlBar store={musicStore} />
-      <NowPlaying store={musicStore} />
-      <QueueList store={musicStore} />
-      {/* M18 歌词面板：仅 Full 模式且当前有播放曲目时渲染。
-          positionS 来自 musicStore.playerState.position_s，LyricsDisplay 内部
-          useEffect 驱动 lyricsStore.refreshCurrentLine 本地二分查找当前行。 */}
-      {currentSong !== null ? (
-        <LyricsDisplay store={lyricsStore} positionS={positionS} />
-      ) : null}
+          触发 fetchPlayerState() 拉取后端状态。
+          收于 .music-dock 固定右停靠列——直接作为 .hud-root 流内子元素会排在
+          100% 高度的 .hud-content 之后，永远落在视口外不可见。 */}
+      <div className="music-dock" data-testid="music-dock">
+        <PlayControlBar store={musicStore} />
+        <NowPlaying store={musicStore} />
+        <QueueList store={musicStore} />
+        {/* M18 歌词面板：仅 Full 模式且当前有播放曲目时渲染。
+            positionS 来自 musicStore.playerState.position_s，LyricsDisplay 内部
+            useEffect 驱动 lyricsStore.refreshCurrentLine 本地二分查找当前行。 */}
+        {currentSong !== null ? (
+          <LyricsDisplay store={lyricsStore} positionS={positionS} />
+        ) : null}
+      </div>
+      {/* M17.10 / D17.1 前端 WebAudio 播放桥：隐藏 <audio> 元素，桥接
+          musicStore 状态 ↔ 实际音频播放（src / play / pause / seek / ended）。
+          不挂载则播放永远静默、进度不走、 ended 不切歌。 */}
+      <AudioPlayer store={musicStore} />
       {/* M22.3 壁纸模式交互分区：仅 wallpaperMode=true 时挂载，
           注册右下控制条 / 左右边缘触发条 / 双击唤醒区为交互分区。
           onWake 触发唤醒浮出（wallpaperAwake=true，浮到 screenSaver level +
@@ -444,7 +466,7 @@ export function App() {
       {/* M19 E2E 调试挂载点：__omniDebug.mountLibraryView() 触发后渲染 LibraryView，
           生产构建（非 DEV）不挂载。E2E 测试通过此入口验证库浏览 UI。 */}
       {libraryViewMounted ? (
-        <LibraryView store={libraryStore} />
+        <LibraryView store={libraryStore} musicStore={musicStore} />
       ) : null}
     </div>
   );

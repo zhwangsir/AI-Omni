@@ -28,7 +28,7 @@ class TestOpenClawConfig:
     def test_default_models(self) -> None:
         """默认模型 ID 应符合 openclaw01 规格。"""
         cfg = OpenClawConfig()
-        assert cfg.llm_l1_model == "qwen3.6-uncensored"
+        assert cfg.llm_l1_model == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
         assert cfg.llm_l4_model == "euryale-70b"
         assert cfg.embedding_model == "Qwen3-Embedding-4B"
 

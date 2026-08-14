@@ -25,7 +25,7 @@
  * 故用 cardCount 行为间接验证 fieldMode 切换（预填充 playlists 后 shelf 模式 cardCount>0）。
  */
 import { test, expect, type Page } from "../support/fixture";
-import { CMD, VOICE_STATUS_EVENT } from "../support/env";
+import { CMD, GLOBAL_KEYS, VOICE_STATUS_EVENT } from "../support/env";
 import { VOICE_THINKING } from "../fixtures/voice";
 import { ShelfViewPage } from "../pages/ShelfView";
 import type { IpcRouter } from "../support/ipcRouter";
@@ -99,10 +99,13 @@ async function enterFullModeAndWait(
  * { ok, data } 信封。若 handler 返回对象则 JSON.parse(object) 会抛 SyntaxError
  * → store 写 E_IPC_FAILED 错误，playlists 不更新。
  *
- * 经 dynamic import /src/store/libraryRuntime.ts 访问 App.tsx 同一单例
- * （App.tsx:77 useMemo(getLibraryStore, [])），调 fetchPlaylists() →
- * music_playlist_list IPC → handler 返回 fixture data → store 更新 playlists
- * → ShelfView 订阅触发 setCards（若 shelf 模式下）。
+ * 经 App.tsx 暴露的 window.__omniDebug.library 访问进程内同一单例，
+ * 调 fetchPlaylists() → music_playlist_list IPC → handler 返回 fixture data →
+ * store 更新 playlists → ShelfView 订阅触发 setCards（若 shelf 模式下）。
+ *
+ * 注意：不可使用 ``import('/src/store/libraryRuntime.ts')``，Vite 开发服务器会把
+ * 绝对路径 ``/src/...`` 与 App.tsx 中相对路径导入视为不同模块实例，导致 store
+ * 单例分裂，playlists 无法更新到 ShelfView 订阅的实例上。
  *
  * @param playlists 歌单列表 fixture（normalizePlaylist 校验 id/name 必填）
  */
@@ -123,9 +126,10 @@ async function populatePlaylists(
     return JSON.stringify({ ok: true, data: {} });
   });
   await appPage.evaluate(async () => {
-    const mod = await import("/src/store/libraryRuntime.ts");
-    const store = mod.getLibraryStore();
-    await store.fetchPlaylists();
+    const debug = (window as unknown as {
+      __omniDebug?: { library: { fetchPlaylists: () => Promise<void> } };
+    }).__omniDebug;
+    await debug?.library.fetchPlaylists();
   });
 }
 

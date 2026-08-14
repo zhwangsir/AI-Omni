@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject } from "react";
 
+import type { HomeSummary, SystemStats } from "../data/sources";
 import type { Space } from "../space/createSpace";
 import { THEMES } from "../theme/themes";
 import { Icon } from "./ui/Icon";
@@ -40,6 +41,29 @@ export interface WellZoneProps {
 const WELL_ZONE_ID = "well";
 const WELL_CAPTION_ZONE_ID = "well-caption";
 
+/**
+ * 组装 caption 卡 meta 行（M32.29a）：home 摘要 + system 资源。
+ * 任一段不可用时省略该段；两段均不可用返回 null（不渲染 meta 行）。
+ * demo 家庭数据显式标注「演示」（sources.ts HomeSummary.demo 契约）。
+ */
+function buildCaptionMeta(home: HomeSummary, system: SystemStats): string | null {
+  const segments: string[] = [];
+  if (home.available && home.stats !== null) {
+    segments.push(
+      `家 ${home.stats.devices}设备/${home.stats.rooms}房间${home.demo ? "（演示）" : ""}`,
+    );
+  }
+  if (system.available) {
+    const cpu = Math.round(system.cpuPercent);
+    const mem =
+      system.memoryTotalBytes > 0
+        ? Math.round((system.memoryUsedBytes / system.memoryTotalBytes) * 100)
+        : 0;
+    segments.push(`CPU ${cpu}% · 内存 ${mem}%`);
+  }
+  return segments.length > 0 ? segments.join(" · ") : null;
+}
+
 export function WellZone({
   statusStore,
   hudStore,
@@ -62,7 +86,9 @@ export function WellZone({
     registry: reg,
   });
 
-  const voice = useSyncExternalStore(statusStore.subscribe, statusStore.getState).voice;
+  const statusState = useSyncExternalStore(statusStore.subscribe, statusStore.getState);
+  const voice = statusState.voice;
+  const captionMeta = buildCaptionMeta(statusState.home, statusState.system);
   const hudState = useSyncExternalStore(hudStore.subscribe, hudStore.getState);
   const themeState = useSyncExternalStore(themeStore.subscribe, themeStore.getState);
   const sleeping = hudState.sleeping;
@@ -136,7 +162,7 @@ export function WellZone({
                 data-state={voiceStateLabel}
                 data-available={voice.available ? "true" : "false"}
               />
-              {THEMES.map((theme) => (
+              {THEMES.map((theme, index) => (
                 <button
                   type="button"
                   key={theme.id}
@@ -146,7 +172,15 @@ export function WellZone({
                   data-theme-id={theme.id}
                   onClick={() => handleThemeClick(theme.id)}
                   aria-label={`切换至${theme.label}`}
-                  style={{ background: theme.tokens.accent }}
+                  style={{
+                    background: theme.tokens.accent,
+                    // 沿控制环左侧纵向分布（镜像右侧睡眠切换），
+                    // 无 top/left 时绝对定位会全部堆叠在井心。
+                    left: "12px",
+                    // 10px 点高，-5px 使各点以 50% + 步进偏移纵向居中；
+                    // 不用 transform 居中，避免与 :hover scale(1.15) 冲突跳位。
+                    top: `calc(50% + ${(index - (THEMES.length - 1) / 2) * 22 - 5}px)`,
+                  }}
                 />
               ))}
               <button
@@ -180,6 +214,11 @@ export function WellZone({
           <span className="well-caption-reply">
             {voice.reply ?? "（暂无回复）"}
           </span>
+          {captionMeta !== null && (
+            <span className="well-caption-meta" data-testid="well-caption-meta">
+              {captionMeta}
+            </span>
+          )}
         </div>
       )}
     </div>

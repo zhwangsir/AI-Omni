@@ -15,16 +15,23 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import type { LibraryStore, LibrarySong, Playlist } from "../../store/libraryStore";
+import type { MusicStore, Song } from "../../store/musicStore";
 import { Icon } from "../ui/Icon";
-import { formatTime } from "./shared";
+import { formatArtists, formatTime } from "./shared";
 
 export interface LibraryViewProps {
   store: LibraryStore;
+  /**
+   * 音乐播放 store（M32.29b 在线搜索入口）；传入后搜索栏出现「本地/在线」切换，
+   * 在线模式经 ``musicStore.searchOnline`` 调 music_search 工具，点击结果即播。
+   * 缺省时不渲染切换，纯本地库浏览（向后兼容）。
+   */
+  musicStore?: MusicStore;
   /** 挂载时自动拉取库状态与歌单列表，缺省 true。 */
   autoFetch?: boolean;
 }
 
-export function LibraryView({ store, autoFetch = true }: LibraryViewProps): JSX.Element {
+export function LibraryView({ store, musicStore, autoFetch = true }: LibraryViewProps): JSX.Element {
   const state = useSyncExternalStore(store.subscribe, store.getState);
 
   useEffect(() => {
@@ -51,7 +58,7 @@ export function LibraryView({ store, autoFetch = true }: LibraryViewProps): JSX.
       <LibraryStatusBar store={store} />
       <div style={{ display: "flex", gap: "10px", flex: "1 1 auto", minHeight: 0 }}>
         <PlaylistSidebar store={store} />
-        <SongListPanel store={store} />
+        <SongListPanel store={store} musicStore={musicStore} />
       </div>
       {state.error ? (
         <div
@@ -349,21 +356,52 @@ function PlaylistRow({
 }
 
 // ---------------------------------------------------------------------------
-// 右栏：歌曲列表（搜索结果 / 歌单内歌曲）
+// 右栏：歌曲列表（本地搜索 / 歌单内歌曲 / 在线搜索 M32.29b）
 // ---------------------------------------------------------------------------
 
-function SongListPanel({ store }: { store: LibraryStore }): JSX.Element {
+type SearchScope = "local" | "online";
+
+function SongListPanel({
+  store,
+  musicStore,
+}: {
+  store: LibraryStore;
+  musicStore?: MusicStore;
+}): JSX.Element {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<SearchScope>("local");
 
   const handleSearch = useCallback((): void => {
+    if (scope === "online" && musicStore !== undefined) {
+      void musicStore.searchOnline(query);
+      return;
+    }
     void store.searchLibrary(query);
-  }, [store, query]);
+  }, [store, musicStore, scope, query]);
+
+  const handleScopeChange = useCallback(
+    (next: SearchScope): void => {
+      setScope((prev) => {
+        if (prev === next) return prev;
+        // 切回本地：清空在线结果，避免残留过期列表（M32.29b 契约）
+        if (next === "local") musicStore?.clearOnlineResults();
+        return next;
+      });
+    },
+    [musicStore],
+  );
 
   // 当前展示的歌曲列表：优先搜索结果，其次歌单内歌曲
   const songs = state.songs ?? state.playlistSongs ?? [];
-  const mode: "search" | "playlist" | "empty" =
-    state.songs !== null ? "search" : state.currentPlaylistId !== null ? "playlist" : "empty";
+  const mode: "online" | "search" | "playlist" | "empty" =
+    scope === "online"
+      ? "online"
+      : state.songs !== null
+        ? "search"
+        : state.currentPlaylistId !== null
+          ? "playlist"
+          : "empty";
 
   return (
     <div
@@ -384,6 +422,30 @@ function SongListPanel({ store }: { store: LibraryStore }): JSX.Element {
       }}
     >
       <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+        {musicStore !== undefined ? (
+          <div
+            data-testid="library-scope-toggle"
+            style={{
+              display: "flex",
+              gap: "2px",
+              padding: "2px",
+              borderRadius: "4px",
+              border: "1px solid var(--omni-hairline)",
+              flexShrink: 0,
+            }}
+          >
+            <ScopeButton
+              scope="local"
+              active={scope === "local"}
+              onSelect={handleScopeChange}
+            />
+            <ScopeButton
+              scope="online"
+              active={scope === "online"}
+              onSelect={handleScopeChange}
+            />
+          </div>
+        ) : null}
         <input
           data-testid="library-search-input"
           type="text"
@@ -392,7 +454,7 @@ function SongListPanel({ store }: { store: LibraryStore }): JSX.Element {
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSearch();
           }}
-          placeholder="搜索歌曲 / 艺术家 / 专辑"
+          placeholder={scope === "online" ? "搜索在线音乐" : "搜索歌曲 / 艺术家 / 专辑"}
           aria-label="搜索音乐库"
           style={{
             flex: "1 1 auto",
@@ -429,7 +491,9 @@ function SongListPanel({ store }: { store: LibraryStore }): JSX.Element {
         </button>
       </div>
 
-      {mode === "empty" ? (
+      {mode === "online" && musicStore !== undefined ? (
+        <OnlineSongList musicStore={musicStore} />
+      ) : mode === "empty" ? (
         <div
           data-testid="library-song-empty"
           style={{
@@ -469,6 +533,165 @@ function SongListPanel({ store }: { store: LibraryStore }): JSX.Element {
         </div>
       )}
     </div>
+  );
+}
+
+/** 本地/在线搜索范围切换按钮（M32.29b）。 */
+function ScopeButton({
+  scope,
+  active,
+  onSelect,
+}: {
+  scope: SearchScope;
+  active: boolean;
+  onSelect: (scope: SearchScope) => void;
+}): JSX.Element {
+  const label = scope === "local" ? "本地" : "在线";
+  return (
+    <button
+      type="button"
+      data-testid={`library-scope-${scope}`}
+      data-active={active ? "true" : "false"}
+      onClick={() => onSelect(scope)}
+      aria-label={`${label}搜索`}
+      aria-pressed={active}
+      style={{
+        padding: "2px 8px",
+        fontSize: "10px",
+        borderRadius: "3px",
+        border: "none",
+        background: active ? "var(--omni-accent)" : "transparent",
+        color: active ? "var(--omni-abyss)" : "var(--omni-dim)",
+        cursor: "pointer",
+        transition: "background-color 160ms ease-out, color 160ms ease-out",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** 在线搜索结果列表（M32.29b）：订阅 musicStore.onlineResults。 */
+function OnlineSongList({ musicStore }: { musicStore: MusicStore }): JSX.Element {
+  const musicState = useSyncExternalStore(musicStore.subscribe, musicStore.getState);
+  const results = musicState.onlineResults;
+
+  const handlePlay = useCallback(
+    (songId: string): void => {
+      void musicStore.play({ songId });
+    },
+    [musicStore],
+  );
+
+  if (results === null) {
+    return (
+      <div
+        data-testid="library-online-empty"
+        style={{
+          padding: "16px 0",
+          textAlign: "center",
+          color: "var(--omni-dim)",
+          fontSize: "11px",
+        }}
+      >
+        输入关键词搜索在线音乐
+      </div>
+    );
+  }
+  if (results.length === 0) {
+    return (
+      <div
+        data-testid="library-online-empty"
+        style={{
+          padding: "16px 0",
+          textAlign: "center",
+          color: "var(--omni-dim)",
+          fontSize: "11px",
+        }}
+      >
+        无匹配歌曲
+      </div>
+    );
+  }
+  return (
+    <div
+      data-testid="library-online-list"
+      data-song-count={results.length}
+      style={{ display: "flex", flexDirection: "column", gap: "2px" }}
+    >
+      {results.map((song) => (
+        <OnlineSongRow key={song.id} song={song} onPlay={handlePlay} />
+      ))}
+    </div>
+  );
+}
+
+/** 在线搜索结果行（M32.29b）：点击即追加队列并播放。 */
+function OnlineSongRow({
+  song,
+  onPlay,
+}: {
+  song: Song;
+  onPlay: (songId: string) => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      data-testid="library-online-row"
+      data-song-id={song.id}
+      onClick={() => onPlay(song.id)}
+      aria-label={`播放：${song.name}`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        padding: "5px 8px",
+        borderRadius: "4px",
+        border: "none",
+        background: "transparent",
+        color: "var(--omni-fog)",
+        cursor: "pointer",
+        textAlign: "left",
+        width: "100%",
+        transition: "background-color 160ms ease-out",
+      }}
+    >
+      <Icon name="play" size={10} color="var(--omni-dim)" />
+      <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: "1px" }}>
+        <span
+          style={{
+            fontSize: "11px",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {song.name}
+        </span>
+        <span
+          style={{
+            fontSize: "9px",
+            color: "var(--omni-dim)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {formatArtists(song.artists)}
+          {song.album ? ` · ${song.album}` : ""}
+        </span>
+      </div>
+      <span
+        style={{
+          fontSize: "9px",
+          color: "var(--omni-dim)",
+          fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+          flexShrink: 0,
+        }}
+      >
+        {song.duration_s > 0 ? formatTime(song.duration_s) : ""}
+      </span>
+    </button>
   );
 }
 

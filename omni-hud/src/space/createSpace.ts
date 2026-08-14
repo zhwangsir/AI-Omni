@@ -270,6 +270,12 @@ export interface Space {
    * dispose 后返回 null；ShelfStage 借此共享同一 renderer/camera，避免第二 WebGL 上下文。
    */
   getShelfHost(): ShelfHost | null;
+  /**
+   * M34.3：标记 shelf 场景激活态——shelf 卡片不受 dimFactor 影响，
+   * 激活期间渲染循环保活（不挂起）；false 后 idle 透明态恢复挂起。
+   * ShelfView 挂载/卸载 ShelfStage 时调用。
+   */
+  setShelfActive(on: boolean): void;
 }
 
 // 相机 rig 常量：视差偏移有界（|x| ≤ 0.6 < 1.5），缓动落在 spec 的 0.04~0.08。
@@ -283,6 +289,8 @@ const FOG_DENSITY = 0.055;
 const ATTRACTOR_PLANE_Z = 0;
 /** mood 流速缓动收敛率（/s）：~300ms 内收敛到新氛围，禁瞬跳。 */
 const MOOD_FLOW_LERP_RATE = 6;
+/** M34.3：dimFactor 挂起收束阈值——≤0.005 时 alpha 已不可感知，渲染循环停泵。 */
+const SUSPEND_DIM_EPSILON = 0.005;
 
 const clampPointer = (value: number): number => Math.min(1, Math.max(-1, value));
 
@@ -387,7 +395,16 @@ export function createSpace(
   let tgtGlowBoost = 0;
   let curSphereScale = 1;
   let tgtSphereScale = 1;
+  /** dimFactor 缓动：idle=0 完全透明，唤醒→1 淡入；时间常数 ~330ms，配合 900ms morph 同步收束 */
+  let curDimFactor = 0;
+  let tgtDimFactor = 0;
+  // --- M34.3 渲染循环挂起：idle 完全透明（dim 收束 0）且非 shelf 场景时停泵 ---
+  /** 首次 setField 后武装挂起（FieldStage 首推 idle 即挂起；裸 space 保持常渲染兼容既有契约）。 */
+  let suspendArmed = false;
+  /** shelf 场景激活保活：卡片不受 dimFactor 影响，dim=0 也必须持续渲染。 */
+  let shelfActive = false;
   const FX_LERP_RATE = 8;
+  const DIM_LERP_RATE = 3;
 
   // --- M5.3 水波纹队列：uniform 数组就地复用（每帧 writeUniforms 原地改写） ---
   const ripples = createRippleQueue();
@@ -496,10 +513,12 @@ export function createSpace(
     curFlickerSpeed += (tgtFlickerSpeed - curFlickerSpeed) * Math.min(1, dt * FX_LERP_RATE);
     curGlowBoost += (tgtGlowBoost - curGlowBoost) * Math.min(1, dt * FX_LERP_RATE);
     curSphereScale += (tgtSphereScale - curSphereScale) * Math.min(1, dt * FX_LERP_RATE);
+    curDimFactor += (tgtDimFactor - curDimFactor) * Math.min(1, dt * DIM_LERP_RATE);
     particles.uniforms.uFlickerIntensity!.value = curFlickerIntensity;
     particles.uniforms.uFlickerSpeed!.value = curFlickerSpeed;
     particles.uniforms.uGlowBoost!.value = curGlowBoost;
     particles.uniforms.uShapeScale!.value = curSphereScale;
+    particles.uniforms.uFieldDim!.value = curDimFactor;
     // 流场时钟前进（dt × 氛围倍率驱动；循环冻结时时间同步冻结）+ morph 过渡采样
     flowTime += dt * flowScale;
     particles.uniforms.uFlowTime!.value = flowTime;
@@ -524,11 +543,32 @@ export function createSpace(
     else renderer.render(scene, camera);
   };
 
+  // --- M34.3 挂起判定与唤醒 ---
+  /**
+   * 挂起条件：已武装（field 接管过视觉态）+ 目标完全透明 + dim 已收束 + 非 shelf 场景。
+   * morph/ripple/主题过渡在 dim=0 下不可见，其状态机基于绝对时钟，挂起不破坏语义，
+   * 无需纳入保活条件；唤醒后经绝对时钟采样自动收束/跳过。
+   */
+  const shouldSuspend = (): boolean =>
+    suspendArmed && !shelfActive && tgtDimFactor === 0 && curDimFactor <= SUSPEND_DIM_EPSILON;
+  /**
+   * 唤醒挂起的循环（幂等：循环存活 / disposed / reduced 时 no-op）。
+   * 重置 fps 窗口（挂起时长不计入降档统计）与 dt 基准（防大跨度 dt 跳变）。
+   */
+  const wakeLoop = (): void => {
+    if (disposed || reduced || frameHandle !== null) return;
+    monitor.resetFrameWindow();
+    lastNow = null;
+    startLoop();
+  };
+
   const schedule = (): void => {
     frameHandle = deps.requestFrame((now) => {
       frameHandle = null;
       if (disposed || reduced) return;
       renderFrame(now);
+      // M34.3：完全透明收束 → 停泵挂起（最后一帧即全透明画面，画布保持显示）
+      if (shouldSuspend()) return;
       schedule();
     });
   };
@@ -631,6 +671,7 @@ export function createSpace(
         throw new RangeError(`未知形状: ${String(shape)}`);
       }
       if (reduced || disposed) return; // 静止降级：不聚集
+      wakeLoop(); // M34.3：挂起中点击聚集需唤醒渲染
       // field 驱动了持久形态时，点击聚集不覆盖（波纹/脉冲仍生效，形状保持不变）
       if (desiredShape !== null) return;
       const newTargets = generateShapePoints(shape, particles.getCount());
@@ -649,6 +690,7 @@ export function createSpace(
 
     releaseShape(): void {
       if (reduced || disposed) return;
+      wakeLoop(); // M34.3
       // field 驱动了持久形态时，点击缓释不释放（语音态的形状由 setField 生命周期管理）
       if (desiredShape !== null) return;
       currentShape = null;
@@ -659,11 +701,13 @@ export function createSpace(
 
     pulseAttractor(strength?: number): void {
       if (reduced || disposed) return; // 静止降级：无脉冲
+      wakeLoop(); // M34.3
       attractor.pulse(strength);
     },
 
     addRipple(ripple: { x: number; y: number; z?: number; durationMs?: number }): boolean {
       if (reduced || disposed) return false; // 静止降级：零产生
+      wakeLoop(); // M34.3：挂起中激起波纹需唤醒渲染一帧（uniform 写入）
       return ripples.add({
         x: ripple.x,
         y: ripple.y,
@@ -678,6 +722,7 @@ export function createSpace(
         throw new RangeError(`非法波纹 NDC 坐标: (${ndcX}, ${ndcY})`);
       }
       if (reduced || disposed) return false; // 静止降级：零产生
+      wakeLoop(); // M34.3
       // 与吸引子同一反投影：点击处的水波纹原点即指针下的粒子层世界坐标
       const point = pointerToPlane(ndcX, ndcY, {
         fovDeg: CAMERA_FOV,
@@ -698,14 +743,17 @@ export function createSpace(
 
     setMood(spec: MoodSpec | null): void {
       moodTarget = spec === null ? MOOD_BASELINE : clampMoodSpec(spec);
+      wakeLoop(); // M34.3
       // bloom 增量即时生效（量小无跳变感）；reduced-motion 恒基线不升
       fx?.setBloomBoost(reduced ? 0 : moodTarget.bloomBoost);
     },
 
     setField(params: FieldParams): void {
       if (disposed) return;
-      // dim 系数（[0,1]，1=不变）：直接写入 vAlpha 乘子，reduced-motion 下仍生效（静态视觉态）。
-      particles.uniforms.uFieldDim!.value = params.dimFactor;
+      suspendArmed = true; // M34.3：field 接管视觉态后允许 idle 挂起
+      wakeLoop();
+      // dim 系数（[0,1]，1=不变）：写目标值，帧循环 lerp 缓动（与 morph 同步淡入/淡出）。
+      tgtDimFactor = params.dimFactor;
       // 井心吸引子：null 时强度归零（shader 内 omniAttractOffset 返回 0 向量，no-op）。
       const fieldAttractor = particles.uniforms.uFieldAttractor!.value as {
         x: number;
@@ -784,6 +832,7 @@ export function createSpace(
 
     setAudioLevels(levels: { bass: number; mid: number; treble: number; beatStrength: number } | null): void {
       if (disposed) return;
+      wakeLoop(); // M34.3
       // reduced-motion：全部归零，禁用节奏粒子脉冲（防光敏风险），仅保留基础形态
       if (reduced || levels === null) {
         particles.uniforms.uBassLevel!.value = 0;
@@ -816,6 +865,7 @@ export function createSpace(
 
     setCinemaMode(mode: CinemaMode): void {
       if (disposed) return;
+      wakeLoop(); // M34.3
       // reduced-motion：强制 off（光敏防护，禁用所有镜头运动）
       cinemaRig.setMode(reduced ? "off" : mode);
     },
@@ -871,6 +921,13 @@ export function createSpace(
         requestFrame: deps.requestFrame,
         cancelFrame: deps.cancelFrame,
       };
+    },
+
+    setShelfActive(on: boolean): void {
+      shelfActive = on;
+      // M34.3：shelf 激活时渲染循环保活（卡片不受 dimFactor 影响，dim=0 也必须持续渲染）；
+      // 关闭时仅落标记，帧尾 shouldSuspend 自然收束挂起，无需主动停泵。
+      if (on) wakeLoop();
     },
   };
 }

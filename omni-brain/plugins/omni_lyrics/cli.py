@@ -1,7 +1,7 @@
 """omni_lyrics 命令行入口：``python -m omni_lyrics <子命令>``。
 
 CLI 是 tools 层的薄壳：解析参数 → 调用 tools → 打印 JSON → 映射退出码
-（ok:true → 0，ok:false → 1；参数解析错误由 argparse 以 2 退出）。
+（ok:true → 0，ok:false → 1；参数解析错误返回 E_INVALID_PARAMS JSON 并退出 1）。
 
 子命令：
 
@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import json
+
+from omni_sdk.cli_utils import JsonErrorArgumentParser
 
 from . import tools
 
@@ -90,9 +92,9 @@ def _cmd_current(args: argparse.Namespace) -> int:
     )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> JsonErrorArgumentParser:
     """构建 CLI 参数解析器。"""
-    parser = argparse.ArgumentParser(
+    parser = JsonErrorArgumentParser(
         prog="omni_lyrics",
         description="歌词多源匹配：LRC解析/优先级链/同步/上传",
     )

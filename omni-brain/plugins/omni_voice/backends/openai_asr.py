@@ -57,6 +57,10 @@ class OpenAIASR(ASRBackend):
 
     ``endpoint`` 为 OpenAI 兼容 base URL（如 ``http://localhost:18789/v1``）；
     网络/协议/结构错误统一映射为 :class:`VoiceBackendError`。
+
+    ``prompt`` 为可选识别偏置（映射 whisper initial_prompt）：注入唤醒词等
+    上下文可显著降低同音误识别（如「雪莉」被写成 Siri/雪梨）。缺省 None
+    时不上传该字段，与旧行为一致。
     """
 
     def __init__(
@@ -65,17 +69,21 @@ class OpenAIASR(ASRBackend):
         model: str = "whisper-1",
         api_key: str | None = None,
         timeout_s: float = 60.0,
+        prompt: str | None = None,
     ) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout_s = timeout_s
+        self.prompt = prompt
 
     def transcribe(self, pcm: bytes, sample_rate: int, language: str | None = None) -> str:
         if not pcm:
             return ""
         wav = _wrap_wav(pcm, sample_rate)
         fields = {"model": self.model, "response_format": "json"}
+        if self.prompt:
+            fields["prompt"] = self.prompt
         if language:
             fields["language"] = language
         body, boundary = _multipart_body(fields, "file", "audio.wav", "audio/wav", wav)
@@ -92,7 +100,11 @@ class OpenAIASR(ASRBackend):
             with urllib.request.urlopen(request, timeout=self.timeout_s) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
-            raise VoiceBackendError(f"ASR 请求失败 HTTP {exc.code}（网关 {self.endpoint}）") from exc
+            code = exc.code
+            # M32.23：关闭异常持有的底层响应资源（Python 3.14 起未关闭触发
+            # ResourceWarning；真实运行时对应未释放的 socket 连接）。
+            exc.close()
+            raise VoiceBackendError(f"ASR 请求失败 HTTP {code}（网关 {self.endpoint}）") from exc
         except (urllib.error.URLError, OSError) as exc:
             raise VoiceBackendError(f"ASR 网关不可达（{self.endpoint}）: {exc}") from exc
         try:

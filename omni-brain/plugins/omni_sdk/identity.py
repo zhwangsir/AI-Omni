@@ -9,9 +9,22 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class AssistantIdentity:
     """助手身份数据类（不可变）。"""
+
     display_name: str = "雪莉"
     english_name: str = "Sherry"
-    wake_aliases: tuple[str, ...] = ("雪莉", "sherry")
+    # 唤醒别名：除本名与英文名外，包含 ASR 常见同音误识别——
+    # faster-whisper 常把「雪莉」转写为雪梨/雪利/雪丽 等同音词，
+    # 热词校验（pipeline._check_hotword）按别名做子串匹配，缺别名会静默拒醒。
+    # 注意：不加入「siri」——发音为 /ˈsɪri/ 与「雪莉」/ɕɥɛ˨˩˦ li˨˩˦/ 差别明显，
+    # 且会与 macOS 系统 Siri 冲突，用户喊助手时会意外唤起 Siri。
+    wake_aliases: tuple[str, ...] = (
+        "雪莉",
+        "sherry",
+        "雪梨",
+        "雪利",
+        "雪丽",
+        "shelly",
+    )
     wake_response: str = "我在"
     system_prompt: str = (
         "你是雪莉（Sherry），一个运行在用户本地的AI语音助手。"

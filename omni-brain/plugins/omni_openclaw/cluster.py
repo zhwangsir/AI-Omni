@@ -1,7 +1,7 @@
 """omni_openclaw 集群巡检与设备管家。
 
 提供 ``ClusterChecker`` 用于并行探测 OpenClaw 网关、LLM、ComfyUI、TTS、Embedding
-等集群端点，并支持读取 ``AIHub/设备说明.md`` 进行设备信息查询。
+等集群端点，并支持读取项目根目录 ``设备说明.md`` 进行设备信息查询。
 
 所有网络访问均通过可注入的 HTTP backend 完成；SSH 探测通过可注入的 runner
 完成，便于单元测试使用 fake 依赖。
@@ -18,10 +18,8 @@ from omni_openclaw.config import OpenClawConfig
 from omni_openclaw.errors import error_response, success_response
 
 
-#: AIHub 设备说明文档路径（只读）
-DEVICE_DOC_PATH: Path = Path(
-    "/Users/wangzhenyu/Desktop/ALLProject/AIHub/设备说明.md"
-)
+#: 项目根目录设备说明文档路径（只读）
+DEVICE_DOC_PATH: Path = Path(__file__).resolve().parents[3] / "设备说明.md"
 
 #: 默认 SSH 探测主机名列表（仅 hostname，不含 IP/密钥）
 DEFAULT_SSH_HOSTS: list[str] = [
@@ -126,16 +124,22 @@ class ClusterChecker:
             device_doc_path: 设备说明文档路径，测试时可覆盖。
         """
         self.config = config or OpenClawConfig()
-        if backend is None:
-            self._backend: HttpBackend = _HttpxBackend(self.config.timeout_s)
-            self._owns_backend = True
-        else:
-            self._backend = backend
-            self._owns_backend = False
+        # M32.23：默认 backend 惰性创建——仅在首次真实 HTTP 探测时构造
+        # httpx client；纯 device_lookup（文件查询）场景不再产生未关闭的
+        # AsyncClient（此前每次构造 ClusterChecker 都立即泄漏一个 httpx
+        # client，直到 GC 触发 ResourceWarning）。
+        self._backend: HttpBackend | None = backend
+        self._owns_backend = backend is None
 
         self._ssh_runner = ssh_runner or _make_default_ssh_runner()
         self._ssh_hosts = ssh_hosts or DEFAULT_SSH_HOSTS
         self._device_doc_path = device_doc_path or DEVICE_DOC_PATH
+
+    def _get_backend(self) -> HttpBackend:
+        """返回 HTTP backend；未注入时惰性构造默认 :class:`_HttpxBackend`。"""
+        if self._backend is None:
+            self._backend = _HttpxBackend(self.config.timeout_s)
+        return self._backend
 
     @staticmethod
     def _health_url(endpoint: str) -> str:
@@ -170,7 +174,7 @@ class ClusterChecker:
         """探测单个 HTTP 端点，返回统一结果字典。"""
         start = time.perf_counter()
         try:
-            status, body = await self._backend.request("GET", url)
+            status, body = await self._get_backend().request("GET", url)
         except Exception as exc:
             status = 0
             body = str(exc)
@@ -297,6 +301,6 @@ class ClusterChecker:
         )
 
     async def close(self) -> None:
-        """释放 backend 资源。"""
-        if self._owns_backend and hasattr(self._backend, "close"):
+        """释放 backend 资源（仅释放已创建且为本实例自有的 backend）。"""
+        if self._owns_backend and self._backend is not None and hasattr(self._backend, "close"):
             await self._backend.close()

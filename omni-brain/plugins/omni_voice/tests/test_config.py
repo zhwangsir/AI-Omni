@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import wave
+from pathlib import Path
+
 import pytest
 
-from omni_voice.config import RUNTIME_SETTABLE, VoiceConfig, parse_simple_yaml
+from omni_sdk.identity import get_identity
+
+from omni_voice.config import (
+    RUNTIME_SETTABLE,
+    VoiceConfig,
+    _default_ref_audio,
+    parse_simple_yaml,
+)
 
 
 class TestDefaults:
@@ -15,17 +25,41 @@ class TestDefaults:
         assert cfg.sample_rate == 16000
         assert cfg.channels == 1
         assert cfg.frame_ms == 32
-        assert cfg.wake_word == "hey_omni"
+        assert cfg.wake_word == "雪莉"
         assert cfg.wake_threshold == 0.5
         assert cfg.vad_threshold == 0.5
         assert cfg.vad_silence_ms == 1200
         assert cfg.max_record_s == 30.0
         assert cfg.asr_model == "whisper-1"
-        assert cfg.tts_voice == "alloy"
-        assert cfg.llm_endpoint == "http://localhost:18789/v1"
-        assert cfg.llm_model == "qwen3.6-uncensored"
+        assert cfg.tts_backend == "indextts2"
+        assert cfg.tts_voice == "zh"
+        assert cfg.tts_speed == pytest.approx(1.0)
+        assert cfg.llm_endpoint == "http://192.168.71.127:8000/v1"
+        assert cfg.asr_endpoint == "http://192.168.71.127:9210/v1"
+        assert cfg.tts_endpoint == "http://192.168.71.127:9200"
+        assert cfg.llm_model == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
         assert cfg.system_prompt
         assert cfg.wake_response == "我在"
+
+    def test_default_wake_word_matches_identity(self):
+        """M25：默认唤醒词必须与 omni_sdk identity 保持一致，避免前端/配置展示漂移。"""
+        cfg = VoiceConfig()
+        identity = get_identity()
+        assert cfg.wake_word == identity.wake_aliases[0]
+        assert cfg.wake_word in identity.wake_aliases
+
+    def test_default_asr_prompt_contains_wake_word(self):
+        """M32.29：默认 ASR 识别偏置注入唤醒词上下文，降低同音误识别（雪莉→Siri）。"""
+        cfg = VoiceConfig()
+        identity = get_identity()
+        assert identity.display_name in cfg.asr_prompt
+        assert identity.english_name in cfg.asr_prompt
+
+    def test_asr_prompt_overridable(self):
+        """asr_prompt 可通过 from_dict 覆盖；置空则关闭识别偏置。"""
+        cfg = VoiceConfig.from_dict({"asr_prompt": "自定义上下文"})
+        assert cfg.asr_prompt == "自定义上下文"
+        assert VoiceConfig.from_dict({"asr_prompt": ""}).asr_prompt == ""
 
     def test_frame_bytes(self):
         # 16000Hz * 32ms * 2 字节(PCM16) * 1 声道 = 1024
@@ -34,7 +68,7 @@ class TestDefaults:
     def test_summary_contains_all_fields(self):
         summary = VoiceConfig().summary()
         assert summary["sample_rate"] == 16000
-        assert summary["llm_model"] == "qwen3.6-uncensored"
+        assert summary["llm_model"] == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
         assert "system_prompt" in summary
         assert "wake_response" in summary
 
@@ -76,6 +110,17 @@ class TestFromEnv:
     def test_env_ignores_unrelated(self):
         cfg = VoiceConfig.from_env(environ={"PATH": "/usr/bin", "OTHER_X": "1"})
         assert cfg.sample_rate == 16000
+
+    def test_env_override_endpoints(self):
+        env = {
+            "OMNI_VOICE_LLM_ENDPOINT": "http://llm.local:8000/v1",
+            "OMNI_VOICE_ASR_ENDPOINT": "http://asr.local:9210/v1",
+            "OMNI_VOICE_TTS_ENDPOINT": "http://tts.local:9200",
+        }
+        cfg = VoiceConfig.from_env(environ=env)
+        assert cfg.llm_endpoint == "http://llm.local:8000/v1"
+        assert cfg.asr_endpoint == "http://asr.local:9210/v1"
+        assert cfg.tts_endpoint == "http://tts.local:9200"
 
     def test_env_invalid_raises(self):
         with pytest.raises(ValueError):
@@ -124,9 +169,15 @@ class TestValidation:
             {"max_record_s": 0},
             {"wake_word": "  "},
             {"asr_model": ""},
+            {"tts_backend": "invalid"},
+            {"tts_backend": ""},
+            {"tts_speed": 0},
+            {"tts_speed": -1},
             {"tts_voice": ""},
             {"llm_model": ""},
             {"llm_endpoint": ""},
+            {"asr_endpoint": ""},
+            {"tts_endpoint": ""},
         ],
     )
     def test_invalid_values_raise(self, kwargs):
@@ -166,6 +217,86 @@ class TestTtsMuted:
     def test_runtime_settable(self):
         """voice_config set 复用既有工具即可调整（不新增 tool）。"""
         assert "tts_muted" in RUNTIME_SETTABLE
+
+
+class TestTtsRefAudio:
+    """M32.15：IndexTTS2 参考音频配置。"""
+
+    def test_default_is_default_path(self):
+        assert VoiceConfig().tts_ref_audio == _default_ref_audio()
+
+    def test_default_ref_audio_points_to_default_wav(self):
+        """M32.21：默认参考音频必须指向 default.wav，而不是其他候选文件。"""
+        path = Path(_default_ref_audio())
+        assert path.name == "default.wav"
+
+    def test_default_ref_audio_exists_and_valid_wav(self):
+        """M32.18：默认参考音频必须存在且为合法单声道 WAV。
+
+        缺失或损坏会导致运行时降级为服务默认音色，用户听感接近系统 TTS。
+        """
+        path = Path(_default_ref_audio())
+        assert path.exists(), f"默认参考音频缺失: {path}"
+        with wave.open(str(path), "rb") as wav:
+            assert wav.getnchannels() == 1
+            assert wav.getframerate() > 0
+            assert wav.getnframes() > 0
+
+    def test_from_dict_path_passthrough(self):
+        cfg = VoiceConfig.from_dict({"tts_ref_audio": "/tmp/ref.wav"})
+        assert cfg.tts_ref_audio == "/tmp/ref.wav"
+
+    def test_summary_contains_tts_ref_audio(self):
+        assert "tts_ref_audio" in VoiceConfig().summary()
+
+    def test_runtime_settable(self):
+        """voice_config set 复用既有工具即可调整（不新增 tool）。"""
+        assert "tts_ref_audio" in RUNTIME_SETTABLE
+
+
+class TestTtsEmoText:
+    """M32.16：IndexTTS2 情感/风格提示文本配置。"""
+
+    def test_default_is_empty_for_neutral_voice(self):
+        """M32.19：默认情感文本为空，日常对话不做额外情感渲染。"""
+        assert VoiceConfig().tts_emo_text == ""
+
+    def test_from_dict_passthrough(self):
+        cfg = VoiceConfig.from_dict({"tts_emo_text": "活泼可爱"})
+        assert cfg.tts_emo_text == "活泼可爱"
+
+    def test_haibara_emotion_preserved(self):
+        """M32.19：灰原哀风格情感提示仍可通过配置启用。"""
+        emo = "清冷温柔，略带忧伤，像灰原哀，少女音色，语速自然，咬字清晰"
+        cfg = VoiceConfig.from_dict({"tts_emo_text": emo})
+        assert cfg.tts_emo_text == emo
+
+    def test_empty_string_allowed(self):
+        cfg = VoiceConfig.from_dict({"tts_emo_text": ""})
+        assert cfg.tts_emo_text == ""
+
+    def test_summary_contains_tts_emo_text(self):
+        assert "tts_emo_text" in VoiceConfig().summary()
+
+    def test_runtime_settable(self):
+        assert "tts_emo_text" in RUNTIME_SETTABLE
+
+
+class TestTtsEmoAlpha:
+    """M32.17：IndexTTS2 情感强度配置。"""
+
+    def test_default_is_095(self):
+        assert VoiceConfig().tts_emo_alpha == pytest.approx(0.95)
+
+    def test_from_dict_coerced(self):
+        cfg = VoiceConfig.from_dict({"tts_emo_alpha": "0.9"})
+        assert cfg.tts_emo_alpha == pytest.approx(0.9)
+
+    def test_summary_contains_tts_emo_alpha(self):
+        assert "tts_emo_alpha" in VoiceConfig().summary()
+
+    def test_runtime_settable(self):
+        assert "tts_emo_alpha" in RUNTIME_SETTABLE
 
 
 class TestParseSimpleYaml:

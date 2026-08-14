@@ -24,7 +24,7 @@ from typing import Any, Callable
 
 from .config import RUNTIME_SETTABLE, VoiceConfig
 from .control_file import VoiceControlFile
-from .errors import PipelineStateError
+from .errors import PipelineStateError, VoiceBackendError
 from .pipeline import VoicePipeline
 from .state_file import PipelineStateWriter, VoiceStateFile
 from omni_sdk.identity import get_identity
@@ -84,12 +84,17 @@ def _build_fake_components(config: VoiceConfig) -> dict[str, Any]:
 def _build_real_components(config: VoiceConfig) -> dict[str, Any]:
     """构建真实后端组件（惰性导入）。
 
-    ASR/TTS/LLM 统一走 OpenClaw 网关 OpenAI 兼容端点（AGENTS.md §四），
-    本地仅保留纯 Python 能量 VAD（零依赖）；TTS 网关不可用时降级静音。
+    - LLM → Nemotron vLLM (192.168.71.127:8000/v1)
+    - ASR → faster-whisper (192.168.71.127:9210/v1)
+    - TTS → IndexTTS2 (192.168.71.127:9200)
+    - VAD/唤醒 → 本地纯 Python EnergyVAD（零依赖）
+
+    TTS 服务不可用时降级为静音 FakeTTS。
     """
     from .agent_bridge import LiteLLMBridge
     from .audio import SounddevicePlayer
     from .backends.energy_vad import EnergyVAD
+    from .backends.indextts2_tts import IndexTTS2
     from .backends.openai_asr import OpenAIASR
     from .backends.vad_wake import VADWakeWord
     from .conversation import ConversationAgent
@@ -99,13 +104,36 @@ def _build_real_components(config: VoiceConfig) -> dict[str, Any]:
         from .backends.fakes import FakeTTS
 
         tts = FakeTTS()
+    elif config.tts_backend == "openai":
+        from .backends.openai_tts import OpenAITTS
+
+        try:
+            tts = OpenAITTS(
+                endpoint=config.tts_endpoint,
+                voice=config.tts_voice,
+                model="tts-1",
+            )
+        except Exception as exc:
+            logger.warning("OpenAI TTS 服务不可用（%s），TTS 将静音", exc)
+            from .backends.fakes import FakeTTS
+
+            tts = FakeTTS()
+            config.tts_muted = True
     else:
         try:
-            from .backends.openai_tts import OpenAITTS
-
-            tts = OpenAITTS(endpoint=config.llm_endpoint, voice=config.tts_voice)
+            tts = IndexTTS2(
+                endpoint=config.tts_endpoint,
+                voice=config.tts_voice,
+                speed=config.tts_speed,
+                ref_audio=config.tts_ref_audio,
+                emo_text=config.tts_emo_text or None,
+                # M32.30：显式 emo_text 时用配置的 emo_alpha（默认 0.95）；
+                # 未显式设置则传 None，由 style 预设决定情感强度（calm→0.6）。
+                emo_alpha=config.tts_emo_alpha if config.tts_emo_text.strip() else None,
+                style=config.tts_style,
+            )
         except Exception as exc:
-            logger.warning("TTS 网关后端不可用（%s），TTS 将静音", exc)
+            logger.warning("IndexTTS2 服务不可用（%s），TTS 将静音", exc)
             from .backends.fakes import FakeTTS
 
             tts = FakeTTS()
@@ -116,7 +144,10 @@ def _build_real_components(config: VoiceConfig) -> dict[str, Any]:
         vad=vad,
         sample_rate=config.sample_rate,
         frame_ms=config.frame_ms,
-        speech_frames=15,
+        # 8 帧（256ms）短阈值 + 4 帧（128ms）凹陷容忍：
+        # 覆盖「雪莉」等双音节短唤醒词（~300ms，音节间有能量凹陷）
+        speech_frames=8,
+        hangover_frames=4,
     )
 
     bridge: Any = LiteLLMBridge(
@@ -124,12 +155,27 @@ def _build_real_components(config: VoiceConfig) -> dict[str, Any]:
         model=config.llm_model,
         system_prompt=config.system_prompt,
     )
-    logger.info("LLM 后端：OpenClaw 网关 %s（模型=%s）", config.llm_endpoint, config.llm_model)
+    logger.info("LLM 后端：%s（模型=%s）", config.llm_endpoint, config.llm_model)
+    logger.info("ASR 后端：%s（模型=%s）", config.asr_endpoint, config.asr_model)
+    logger.info(
+        "TTS 后端：%s（backend=%s, voice=%s, speed=%s, ref_audio=%s, emo_text=%s, emo_alpha=%s）",
+        config.tts_endpoint,
+        config.tts_backend,
+        config.tts_voice,
+        config.tts_speed,
+        config.tts_ref_audio or "<default>",
+        config.tts_emo_text or "<none>",
+        config.tts_emo_alpha,
+    )
     agent: Any = ConversationAgent(bridge, system_prompt=config.system_prompt)
     return {
         "wake": wake,
         "vad": vad,
-        "asr": OpenAIASR(endpoint=config.llm_endpoint, model=config.asr_model),
+        "asr": OpenAIASR(
+            endpoint=config.asr_endpoint,
+            model=config.asr_model,
+            prompt=config.asr_prompt or None,
+        ),
         "tts": tts,
         "player": SounddevicePlayer(sample_rate=config.sample_rate),
         "agent": agent,
@@ -175,8 +221,9 @@ def _ok(data: Any) -> str:
     return json.dumps({"ok": True, "data": data}, ensure_ascii=False)
 
 
-def _err(message: str) -> str:
-    return json.dumps({"ok": False, "error": message}, ensure_ascii=False)
+def _err(message: str, code: str = "E_UNKNOWN") -> str:
+    """构造标准错误返回：error 字段为 {code, message} 对象。"""
+    return json.dumps({"ok": False, "error": {"code": code, "message": message}}, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +388,9 @@ def voice_speak(text: str, fake: bool = False) -> str:
         tts_sr = getattr(comps["tts"], "sample_rate", rt.config.sample_rate)
         comps["player"].play(pcm, tts_sr)
         return _ok({"spoken": text, "pcm_bytes": len(pcm)})
+    except VoiceBackendError as exc:
+        logger.debug("voice_speak 后端不可用: %s", exc)
+        return _err(str(exc), code="E_BACKEND_UNAVAILABLE")
     except Exception as exc:  # noqa: BLE001 - 统一映射为 ok:false
         logger.debug("voice_speak 失败: %s", exc)
         return _err(str(exc))
@@ -397,6 +447,9 @@ def voice_listen_once(timeout_s: float = 10.0, speak: bool = True, fake: bool = 
             comps["player"].play(speech, tts_sr)
             spoken = True
         return _ok({"transcript": transcript, "reply": reply, "spoken": spoken})
+    except VoiceBackendError as exc:
+        logger.debug("voice_listen_once 后端不可用: %s", exc)
+        return _err(str(exc), code="E_BACKEND_UNAVAILABLE")
     except Exception as exc:  # noqa: BLE001
         logger.debug("voice_listen_once 失败: %s", exc)
         return _err(str(exc))
@@ -438,6 +491,9 @@ def voice_pipeline_start(fake: bool = False) -> str:
         entered = pipeline.start()
         rt.pipeline = pipeline
         return _ok({"state": entered.value, "running": True})
+    except VoiceBackendError as exc:
+        logger.debug("voice_pipeline_start 后端不可用: %s", exc)
+        return _err(str(exc), code="E_BACKEND_UNAVAILABLE")
     except Exception as exc:  # noqa: BLE001
         logger.debug("voice_pipeline_start 失败: %s", exc)
         return _err(str(exc))
@@ -466,7 +522,9 @@ def voice_pipeline_stop() -> str:
     description=(
         "语音配置读写：action=get 返回完整配置摘要；action=set 修改运行时可调项"
         "（wake_threshold/vad_threshold/vad_silence_ms/max_record_s/tts_voice/"
-        "system_prompt/llm_model/llm_endpoint/tts_muted），原地生效、立即被运行中的管道感知。"
+        "tts_speed/tts_ref_audio/tts_emo_text/tts_emo_alpha/system_prompt/"
+        "llm_model/llm_endpoint/asr_endpoint/tts_endpoint/asr_model/tts_muted），"
+        "原地生效、立即被运行中的管道感知。"
     ),
     parameters={
         "action": {
@@ -492,8 +550,10 @@ def voice_config(action: str = "get", key: str | None = None, value: Any = None)
         if action == "get":
             return _ok(rt.config.summary())
         if action == "set":
-            if not key:
+            if key is None or key == "":
                 raise ValueError("action=set 时 key 必需")
+            if value is None:
+                raise ValueError("action=set 时 value 必需")
             if key not in RUNTIME_SETTABLE:
                 raise ValueError(
                     f"配置项 {key} 不支持运行时修改（可调: {', '.join(RUNTIME_SETTABLE)}）"
@@ -505,6 +565,9 @@ def voice_config(action: str = "get", key: str | None = None, value: Any = None)
                 setattr(rt.config, field.name, getattr(candidate, field.name))
             return _ok({"key": key, "value": getattr(rt.config, key)})
         raise ValueError(f"未知 action: {action}")
+    except ValueError as exc:
+        logger.debug("voice_config 参数错误: %s", exc)
+        return _err(str(exc), code="E_INVALID_PARAMS")
     except Exception as exc:  # noqa: BLE001
         logger.debug("voice_config 失败: %s", exc)
         return _err(str(exc))

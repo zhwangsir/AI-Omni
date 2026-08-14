@@ -1,0 +1,32 @@
+{
+  "name": "omni_wechat",
+  "version": "0.1.0",
+  "description": "微信消息收发插件：直连腾讯 iLink Bot API，支持文本发送与长轮询接收",
+  "author": "AI-Omni",
+  "permissions": [
+    "network",
+    "fs.read:~/.omni_wechat",
+    "fs.write:~/.omni_wechat",
+    "tools.register"
+  ],
+  "platforms": ["macos", "linux"],
+  "dependencies": {
+    "omni_sdk": ">=0.1.0"
+  },
+  "events": {
+    "publishes": [
+      "wechat.message_received",
+      "wechat.listen_started",
+      "wechat.listen_stopped",
+      "wechat.message_sent"
+    ],
+    "subscribes": []
+  },
+  "tools": [
+    "wechat_send",
+    "wechat_status",
+    "wechat_set_target",
+    "wechat_start_listen",
+    "wechat_stop_listen"
+  ]
+}

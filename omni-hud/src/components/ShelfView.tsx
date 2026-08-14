@@ -10,6 +10,9 @@
  * - libraryStore.playlists 变化时调 shelfStage.setCards() 重建卡片。
  * - 卸载/切回 space 时 dispose ShelfStage（幂等），从 scene 移除 Group。
  * - 粒子背景淡化：shelf 激活时 setMood 重置基线，避免语音态放大粒子干扰卡片可读性。
+ * - M34.3：shelf 激活期间经 space.setShelfActive(true) 保活渲染循环
+ *   （卡片不受 dimFactor 影响，idle dim=0 也必须持续渲染）；退出/卸载时置 false，
+ *   恢复 idle 透明态挂起（GPU/CPU 归零）。
  *
  * 不直接渲染 Three.js 对象（ShelfStage 拥有 mesh 生命周期），本组件只编排 React 生命周期。
  */
@@ -52,6 +55,8 @@ export function ShelfView({ spaceRef, hudStore, libraryStore }: ShelfViewProps) 
           window.cancelAnimationFrame(frameHandleRef.current);
           frameHandleRef.current = null;
         }
+        // M34.3：退出 shelf → 取消保活，idle 透明态恢复渲染循环挂起
+        space?.setShelfActive(false);
         // 恢复粒子氛围（交还 FieldStage 控制）
         space?.setMood(null);
         return;
@@ -73,6 +78,8 @@ export function ShelfView({ spaceRef, hudStore, libraryStore }: ShelfViewProps) 
         },
       });
 
+      // M34.3：shelf 激活 → 渲染循环保活（卡片不受 dimFactor 影响，idle dim=0 也持续渲染）
+      space?.setShelfActive(true);
       // 粒子背景淡化：重置 mood 到基线，避免语音态放大粒子干扰卡片可读性
       space?.setMood(null);
 
@@ -102,6 +109,8 @@ export function ShelfView({ spaceRef, hudStore, libraryStore }: ShelfViewProps) 
       if (shelfRef.current !== null) {
         shelfRef.current.dispose();
         shelfRef.current = null;
+        // M34.3：卸载时若 shelf 仍激活，取消保活恢复 idle 挂起
+        spaceRef.current?.setShelfActive(false);
       }
     };
   }, [hudStore, libraryStore, spaceRef]);

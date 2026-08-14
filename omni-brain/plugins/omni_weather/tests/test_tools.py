@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 
@@ -174,6 +177,39 @@ class TestWeatherGet:
         hint_events = [e for e in events if e[0] == "weather.home_hint"]
         assert len(hint_events) >= 1
 
+    def test_get_via_cache_when_not_fake(self, patch_httpx):
+        """fake=False 时经缓存拉取：首次 miss，二次命中（cached=True）。"""
+        tools._runtime.location = {"city": "北京", "lat": 39.9042, "lon": 116.4074}
+        data = _parse(tools.weather_get(fake=False))
+        assert data["ok"] is True
+        assert data["data"]["cached"] is False
+        data2 = _parse(tools.weather_get(fake=False))
+        assert data2["ok"] is True
+        assert data2["data"]["cached"] is True
+
+    def test_get_weather_backend_failure(self, monkeypatch):
+        """天气后端失败 → 透传后端错误码。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp(None, status=500))
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_get(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_HTTP_FAILED"
+
+    def test_get_internal_error(self, patch_httpx, monkeypatch):
+        """mood 计算抛异常 → 捕获返回 E_INTERNAL，不向外抛。"""
+
+        def boom(code):
+            raise RuntimeError("mood broken")
+
+        monkeypatch.setattr(tools, "get_mood", boom)
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_get(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+        assert "mood broken" in data["error"]["message"]
+
 
 # ---------------------------------------------------------------------------
 # weather_forecast
@@ -190,6 +226,38 @@ class TestWeatherForecast:
         """未配置位置时 forecast 降级用 IP。"""
         data = _parse(tools.weather_forecast(fake=True))
         assert data["ok"] is True
+
+    def test_forecast_no_location_and_ip_fails(self, monkeypatch):
+        """无位置 + IP 定位失败 → E_LOCATION_REQUIRED。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp({"status": "fail", "message": "x"}))
+        data = _parse(tools.weather_forecast(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_LOCATION_REQUIRED"
+
+    def test_forecast_weather_backend_failure(self, monkeypatch):
+        """天气后端失败 → 透传后端错误码。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp(None, status=500))
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_forecast(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_HTTP_FAILED"
+
+    def test_forecast_internal_error(self, monkeypatch):
+        """拉取天气抛异常 → 捕获返回 E_INTERNAL。"""
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("fetch broken")
+
+        monkeypatch.setattr(tools, "_fetch_weather", boom)
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_forecast(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+        assert "fetch broken" in data["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +330,41 @@ class TestWeatherLocation:
         assert data["data"]["city"] == "上海"
         assert data["data"]["lat"] == 31.2
 
+    def test_set_location_invalid_lat_lon(self):
+        """lat/lon 非数字 → E_INVALID_ARG。"""
+        data = _parse(tools.weather_set_location(city="自定义", lat="abc", lon=120.0, fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INVALID_ARG"
+        assert "abc" in data["error"]["message"]
+
+    def test_set_location_geocoding_http_failure(self, monkeypatch):
+        """geocoding HTTP 失败 → 透传 E_HTTP_FAILED。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp(None, status=500))
+        data = _parse(tools.weather_set_location(city="北京", fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_HTTP_FAILED"
+
+    def test_set_location_internal_error(self, patch_httpx, monkeypatch):
+        """配置持久化抛异常 → 捕获返回 E_INTERNAL。"""
+
+        def boom(config):
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr(tools, "save_config", boom)
+        data = _parse(tools.weather_set_location(city="北京", fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+        assert "disk full" in data["error"]["message"]
+
+    def test_get_location_internal_error(self):
+        """location 数据缺 city 键 → 捕获返回 E_INTERNAL。"""
+        tools._runtime.location = {"lat": 1.0, "lon": 2.0}
+        data = _parse(tools.weather_get_location(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+
 
 # ---------------------------------------------------------------------------
 # weather_get_mood
@@ -284,6 +387,28 @@ class TestWeatherGetMood:
         data = _parse(tools.weather_get_mood(fake=True))
         assert data["ok"] is False
 
+    def test_get_mood_weather_backend_failure(self, monkeypatch):
+        """天气后端失败 → 透传后端错误码。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp(None, status=500))
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_get_mood(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_HTTP_FAILED"
+
+    def test_get_mood_internal_error(self, patch_httpx, monkeypatch):
+        """mood 计算抛异常 → 捕获返回 E_INTERNAL。"""
+
+        def boom(code):
+            raise RuntimeError("mood broken")
+
+        monkeypatch.setattr(tools, "get_mood", boom)
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_get_mood(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+
 
 # ---------------------------------------------------------------------------
 # weather_refresh
@@ -298,6 +423,56 @@ class TestWeatherRefresh:
         data = _parse(tools.weather_refresh(fake=True))
         assert data["ok"] is True
         assert "refreshed_at" in data["data"]
+
+    def test_refresh_no_location_and_ip_fails(self, monkeypatch):
+        """无位置 + IP 定位失败 → E_LOCATION_REQUIRED。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp({"status": "fail", "message": "x"}))
+        data = _parse(tools.weather_refresh(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_LOCATION_REQUIRED"
+
+    def test_refresh_invalidates_cache_when_not_fake(self, patch_httpx, monkeypatch):
+        """fake=False 时 refresh 先调用 cache.invalidate 失效缓存，再重新拉取回写。"""
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        tools.weather_get(fake=False)  # 填充缓存
+        assert tools._runtime.cache.status()["entries"] == 1
+        calls: list[tuple[float, float]] = []
+        orig_invalidate = tools._runtime.cache.invalidate
+
+        def _spy(lat: float, lon: float) -> None:
+            calls.append((lat, lon))
+            orig_invalidate(lat, lon)
+
+        monkeypatch.setattr(tools._runtime.cache, "invalidate", _spy)
+        data = _parse(tools.weather_refresh(fake=False))
+        assert data["ok"] is True
+        assert calls == [(39.9, 116.4)]
+        # 失效后重新拉取并回写缓存
+        assert tools._runtime.cache.status()["entries"] == 1
+
+    def test_refresh_weather_backend_failure(self, monkeypatch):
+        """天气后端失败 → 透传后端错误码。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp(None, status=500))
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_refresh(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_HTTP_FAILED"
+
+    def test_refresh_internal_error(self, monkeypatch):
+        """位置解析抛异常 → 捕获返回 E_INTERNAL。"""
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("resolve broken")
+
+        monkeypatch.setattr(tools, "_resolve_location", boom)
+        data = _parse(tools.weather_refresh(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+        assert "resolve broken" in data["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +491,27 @@ class TestWeatherSearchCity:
         data = _parse(tools.weather_search_city(keyword="", fake=True))
         assert data["ok"] is False
         assert data["error"]["code"] == "E_INVALID_ARG"
+
+    def test_search_city_geocoding_http_failure(self, monkeypatch):
+        """geocoding HTTP 失败 → 透传 E_HTTP_FAILED。"""
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", lambda url, **kw: _FakeResp(None, status=503))
+        data = _parse(tools.weather_search_city(keyword="北京", fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_HTTP_FAILED"
+
+    def test_search_city_internal_error(self, monkeypatch):
+        """geocoding 后端抛异常 → 捕获返回 E_INTERNAL。"""
+
+        def boom(keyword, limit=5):
+            raise RuntimeError("geocoding boom")
+
+        monkeypatch.setattr(tools._runtime.geocoding, "search", boom)
+        data = _parse(tools.weather_search_city(keyword="北京", fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+        assert "geocoding boom" in data["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +533,18 @@ class TestWeatherStatus:
         data = _parse(tools.weather_status(fake=True))
         assert data["ok"] is True
         assert data["data"]["location"] is None
+
+    def test_status_internal_error(self, monkeypatch):
+        """cache.status 抛异常 → 捕获返回 E_INTERNAL。"""
+
+        def boom():
+            raise RuntimeError("cache broken")
+
+        monkeypatch.setattr(tools._runtime.cache, "status", boom)
+        data = _parse(tools.weather_status(fake=True))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INTERNAL"
+        assert "cache broken" in data["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +647,14 @@ class TestRegister:
         data = _parse(result)
         assert data["ok"] is False
 
+    def test_make_handler_missing_required_arg(self):
+        """缺必填参数触发 TypeError 时 → E_INVALID_ARGS。"""
+        handler = tools._make_handler(tools.weather_search_city)
+        data = _parse(handler({}))
+        assert data["ok"] is False
+        assert data["error"]["code"] == "E_INVALID_ARGS"
+        assert "keyword" in data["error"]["message"]
+
 
 # ---------------------------------------------------------------------------
 # async EventBus 集成
@@ -489,3 +705,37 @@ class TestAsyncEventBusIntegration:
         result = tools.weather_get(fake=True)
         data = _parse(result)
         assert data["ok"] is True
+
+    def test_publish_coroutine_without_running_loop(self, patch_httpx):
+        """同步上下文中 bus.publish 返回 coroutine：经 asyncio.run 执行完成。"""
+        received: list[tuple[str, dict[str, Any]]] = []
+
+        class _AsyncBus:
+            def publish(self, event_type, payload):
+                async def _deliver():
+                    received.append((event_type, payload))
+
+                return _deliver()
+
+        tools._runtime.event_publisher = _AsyncBus()
+        tools._runtime.location = {"city": "北京", "lat": 39.9, "lon": 116.4}
+        data = _parse(tools.weather_get(fake=True))
+        assert data["ok"] is True
+        types = [e[0] for e in received]
+        assert "weather.mood_changed" in types
+        assert "weather.updated" in types
+
+
+# ---------------------------------------------------------------------------
+# TaskTracker 导入降级
+# ---------------------------------------------------------------------------
+class TestImportFallback:
+    def test_task_tracker_import_fallback(self):
+        """omni_sdk.utils 不可用时 _HAS_TASK_TRACKER=False 且 task_tracker=None。"""
+        with mock.patch.dict(sys.modules, {"omni_sdk.utils": None}):
+            importlib.reload(tools)
+            assert tools._HAS_TASK_TRACKER is False
+            assert tools.Runtime().task_tracker is None
+        # 恢复 omni_sdk.utils 后重载，还原模块状态
+        importlib.reload(tools)
+        assert tools._HAS_TASK_TRACKER is True

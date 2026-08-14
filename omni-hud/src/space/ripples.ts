@@ -12,8 +12,8 @@ export const RIPPLE_MAX_CONCURRENT = 4;
 export const RIPPLE_MIN_DURATION_MS = 1200;
 /** 默认生命周期（ms）：~2s，慢速扩散至全场后淡出。 */
 export const RIPPLE_DEFAULT_DURATION_MS = 2000;
-/** 扩散半径（世界单位）：覆盖粒子体积最大半径（4.2）并留出边缘余量。 */
-export const RIPPLE_TRAVEL_RADIUS = 6;
+/** 扩散半径（世界单位）：覆盖粒子体积最大对角半径（√(7.5²+4.8²+5²)≈10.2）并留出边缘余量。 */
+export const RIPPLE_TRAVEL_RADIUS = 11;
 /** 单片位移上限（世界单位）：高斯波前峰值，轻推而非爆散。 */
 export const RIPPLE_MAX_PUSH = 0.55;
 /** 波前高斯带宽 σ（世界单位）：窄带波前，内侧快速回落不拖尾。 */

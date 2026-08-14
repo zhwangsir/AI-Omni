@@ -29,9 +29,21 @@ def _run(capsys, argv: list[str]) -> tuple[int, dict]:
 
 
 class TestParser:
-    def test_subcommand_required(self):
-        with pytest.raises(SystemExit):
+    def test_subcommand_required_returns_json_invalid_params(self, capsys):
+        with pytest.raises(SystemExit) as exc:
             build_parser().parse_args([])
+        assert exc.value.code == 1
+        result = json.loads(capsys.readouterr().out)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
+
+    def test_control_missing_text_returns_json_invalid_params(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            main(["control", "--fake"])
+        assert exc.value.code == 1
+        result = json.loads(capsys.readouterr().out)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
 
     def test_parse_control(self):
         args = build_parser().parse_args(["control", "打开客厅灯", "--fake"])

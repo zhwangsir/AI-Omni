@@ -17,6 +17,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -175,6 +176,94 @@ class TestCookieStoreNoHardcodedKey:
         ]
         for pat in bad_patterns:
             assert pat not in src, f"源码中出现可疑硬编码密钥: {pat}"
+
+
+@_NEED_CRYPTO
+class TestCookieStoreIOFailures:
+    """CookieStore 文件 IO / 密文损坏分支（需要 cryptography 到达加密路径）。"""
+
+    def test_save_with_uncreatable_dir_returns_e_io_failed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """mkdir 失败只记日志；随后写文件失败映射为 E_IO_FAILED。"""
+
+        def _boom_mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+            raise OSError("mkdir boom")
+
+        monkeypatch.setattr(Path, "mkdir", _boom_mkdir)
+        store = CookieStore(base_dir=tmp_path / "noexist", passphrase="test-key")
+        result = store.save("netease", {"k": "v"})
+        assert result is not None
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_IO_FAILED"
+
+    def test_load_invalid_base64_returns_none(self, tmp_path: Path) -> None:
+        """密文文件不是合法 base64 → load 返回 None。"""
+        store = CookieStore(base_dir=tmp_path, passphrase="test-key")
+        (tmp_path / "netease.enc").write_bytes(b"!!!not-valid-base64!!!")
+        assert store.load("netease") is None
+
+    def test_load_too_short_blob_returns_none(self, tmp_path: Path) -> None:
+        """解密前 blob 长度不足 nonce → load 返回 None。"""
+        import base64
+
+        store = CookieStore(base_dir=tmp_path, passphrase="test-key")
+        (tmp_path / "netease.enc").write_bytes(base64.b64encode(b"tiny"))
+        assert store.load("netease") is None
+
+    def test_load_non_json_plaintext_returns_none(self, tmp_path: Path) -> None:
+        """解密成功但明文不是合法 JSON → load 返回 None。"""
+        import base64
+        import os
+
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+        store = CookieStore(base_dir=tmp_path, passphrase="test-key")
+        aesgcm = AESGCM(store._key)
+        nonce = os.urandom(12)
+        ct_with_tag = aesgcm.encrypt(nonce, b"not-a-json{{{", associated_data=None)
+        (tmp_path / "netease.enc").write_bytes(base64.b64encode(nonce + ct_with_tag))
+        assert store.load("netease") is None
+
+    def test_clear_unlink_failure_only_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """删除文件失败只记日志不抛错（幂等）。"""
+        store = CookieStore(base_dir=tmp_path, passphrase="test-key")
+        store.save("netease", {"k": "v"})
+        enc_file = tmp_path / "netease.enc"
+        assert enc_file.is_file()
+
+        def _boom_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
+            raise OSError("unlink boom")
+
+        monkeypatch.setattr(Path, "unlink", _boom_unlink)
+        store.clear("netease")  # 不应抛异常
+        assert enc_file.is_file()  # 文件仍在
+
+
+class TestPassphraseResolution:
+    """密钥口令解析优先级：显式 > 环境变量 > 机器特征（不依赖 cryptography）。"""
+
+    def test_resolve_falls_back_to_machine_passphrase(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """未显式传入且无环境变量时，回退到机器特征派生口令。"""
+        from omni_music.auth.cookie_store import _machine_passphrase, _resolve_passphrase
+
+        monkeypatch.delenv("AI_OMNI_COOKIE_KEY", raising=False)
+        passphrase = _resolve_passphrase()
+        assert passphrase == _machine_passphrase()
+        assert passphrase.startswith("ai-omni::")
+
+    def test_machine_passphrase_contains_hostname_and_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """机器特征口令包含 hostname 与 username。"""
+        import socket
+
+        from omni_music.auth.cookie_store import _machine_passphrase
+
+        monkeypatch.setenv("USER", "tester")
+        passphrase = _machine_passphrase()
+        assert socket.gethostname() in passphrase
+        assert "tester" in passphrase
 
 
 class TestCookieStoreBackendUnavailable:

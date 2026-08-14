@@ -4,13 +4,67 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from omni_openclaw.cluster import ClusterChecker
+from omni_openclaw.cluster import (
+    ClusterChecker,
+    _HttpxBackend,
+    _make_default_ssh_runner,
+)
 from omni_openclaw.config import OpenClawConfig
+
+
+class _FakeHttpResponse:
+    """模拟 httpx Response 的最小接口。"""
+
+    def __init__(
+        self,
+        status_code: int = 200,
+        json_data: Any = None,
+        text: str = "",
+        json_raises: bool = False,
+    ) -> None:
+        self.status_code = status_code
+        self.text = text
+        self._json_data = json_data
+        self._json_raises = json_raises
+
+    def json(self) -> Any:
+        """返回预置 JSON 数据；``json_raises`` 时模拟解析失败。"""
+        if self._json_raises:
+            raise ValueError("invalid json")
+        return self._json_data
+
+
+def _install_fake_httpx(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """向 sys.modules 注入 fake httpx，返回已创建的 AsyncClient 实例列表。"""
+    created: list[Any] = []
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+            self.requests: list[dict[str, Any]] = []
+            self.responses: list[_FakeHttpResponse] = []
+            self.closed = False
+            created.append(self)
+
+        async def request(
+            self, method: str, url: str, **kwargs: Any
+        ) -> _FakeHttpResponse:
+            self.requests.append({"method": method, "url": url, "kwargs": kwargs})
+            return self.responses.pop(0)
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(
+        sys.modules, "httpx", types.SimpleNamespace(AsyncClient=FakeAsyncClient)
+    )
+    return created
 
 
 class FakeHttpBackend:
@@ -194,8 +248,17 @@ class TestHealthCheck:
         assert by_host["openclaw02"]["ok"] is False
 
     @pytest.mark.asyncio
-    async def test_ssh_default_asyncssh(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """安装 asyncssh 时默认 runner 应能执行 SSH 探测。"""
+    async def test_ssh_default_asyncssh(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        backend: FakeHttpBackend,
+    ) -> None:
+        """安装 asyncssh 时默认 runner 应能执行 SSH 探测。
+
+        M32.23：必须注入 fake HTTP backend——此前未注入导致 health_check
+        真实探测集群 6 个端点（违反测试零依赖纪律），且 httpx client
+        未关闭触发 ResourceWarning。
+        """
 
         class FakeResult:
             stdout = "uptime 1 day"
@@ -216,14 +279,17 @@ class TestHealthCheck:
 
                 return _CM()
 
+        _register_all_ok(backend)
         monkeypatch.setitem(sys.modules, "asyncssh", FakeAsyncSSH())
-        checker = ClusterChecker(ssh_hosts=["openclaw01"])
+        checker = ClusterChecker(ssh_hosts=["openclaw01"], backend=backend)
         result = await checker.health_check()
 
         ssh = result["report"]["ssh"]
         assert len(ssh) == 1
         assert ssh[0]["ok"] is True
         assert "uptime" in ssh[0]["detail"]
+        # HTTP 探测必须走 fake backend，而非真实集群
+        assert len(backend.calls) == len(_ENDPOINTS)
 
     def test_ssh_skipped_when_asyncssh_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """未安装 asyncssh 且未注入 runner 时，SSH 探测应被跳过。"""
@@ -234,6 +300,14 @@ class TestHealthCheck:
 
 class TestDeviceLookup:
     """设备文档查询测试。"""
+
+    def test_default_doc_path_is_inside_project(self) -> None:
+        """M32.21：默认设备说明文档路径必须位于 AI-Omni 项目根目录，禁止跨仓库读取。"""
+        from omni_openclaw.cluster import DEVICE_DOC_PATH
+
+        project_root = Path(__file__).resolve().parents[4]
+        assert DEVICE_DOC_PATH.resolve().is_relative_to(project_root)
+        assert "AIHub" not in str(DEVICE_DOC_PATH)
 
     def test_file_not_exists(self) -> None:
         """设备说明文件不存在时应返回友好提示。"""
@@ -322,3 +396,187 @@ class TestLifecycle:
         checker = ClusterChecker()
         assert checker._owns_backend is True
         await checker.close()
+
+
+# ===========================================================================
+# M32.23：默认 backend 惰性创建（防 httpx client 泄漏）
+# ===========================================================================
+class TestLazyBackend:
+    """默认 HTTP backend 必须在首次真实使用时才创建。
+
+    回归背景：此前 ``ClusterChecker()`` 构造即创建 ``httpx.AsyncClient``，
+    纯 ``device_lookup``（文件查询）场景也泄漏一个未关闭的 client，
+    GC 时触发 ``ResourceWarning: unclosed transport``。
+    """
+
+    def test_default_construction_creates_no_backend(self) -> None:
+        """未注入 backend 时，构造后 backend 必须为 None（尚未创建）。"""
+        checker = ClusterChecker()
+        assert checker._backend is None
+        assert checker._owns_backend is True
+
+    def test_device_lookup_does_not_create_backend(self, tmp_path: Path) -> None:
+        """纯文件查询路径不得触发 httpx client 创建。"""
+        doc = tmp_path / "设备说明.md"
+        doc.write_text("# 节点\n\n- spark01\n", encoding="utf-8")
+        checker = ClusterChecker(device_doc_path=doc)
+        result = checker.device_lookup("spark01")
+        assert result["found"] is True
+        assert checker._backend is None
+
+    @pytest.mark.asyncio
+    async def test_health_check_creates_backend_on_demand(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """首次 HTTP 探测时才构造默认 backend，且仅构造一次。"""
+        created: list[FakeHttpBackend] = []
+
+        class FakeHttpxBackend(FakeHttpBackend):
+            def __init__(self, timeout: float) -> None:
+                super().__init__()
+                created.append(self)
+
+        monkeypatch.setattr("omni_openclaw.cluster._HttpxBackend", FakeHttpxBackend)
+        checker = ClusterChecker()
+        assert checker._backend is None
+        await checker.health_check()
+        assert len(created) == 1
+        assert checker._backend is created[0]
+        # 再次探测复用同一 backend，不重复创建
+        await checker.health_check()
+        assert len(created) == 1
+
+    @pytest.mark.asyncio
+    async def test_close_releases_lazily_created_backend(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """close 必须关闭惰性创建的自有 backend。"""
+        closed: list[bool] = []
+
+        class FakeHttpxBackend(FakeHttpBackend):
+            def __init__(self, timeout: float) -> None:
+                super().__init__()
+
+            async def close(self) -> None:
+                closed.append(True)
+
+        monkeypatch.setattr("omni_openclaw.cluster._HttpxBackend", FakeHttpxBackend)
+        checker = ClusterChecker()
+        await checker.health_check()
+        await checker.close()
+        assert closed == [True]
+
+    @pytest.mark.asyncio
+    async def test_close_without_use_is_noop(self) -> None:
+        """从未使用的 checker 调 close 不得创建 backend、不得报错。"""
+        checker = ClusterChecker()
+        await checker.close()
+        assert checker._backend is None
+
+
+class TestHealthUrl:
+    """_health_url 探测 URL 构造测试。"""
+
+    def test_v1_endpoint_uses_models_probe(self) -> None:
+        """OpenAI 兼容端点（/v1 结尾）应使用 /v1/models 探针。"""
+        url = ClusterChecker._health_url("http://host:8000/v1")
+        assert url == "http://host:8000/v1/models"
+
+    def test_non_v1_endpoint_uses_health_probe(self) -> None:
+        """非 /v1 端点应使用 /health 探针，末尾斜杠不重复。"""
+        assert ClusterChecker._health_url("http://host:9200") == "http://host:9200/health"
+        assert ClusterChecker._health_url("http://host:9200/") == "http://host:9200/health"
+
+
+class TestClusterHttpxBackend:
+    """真实 _HttpxBackend 包装层测试（httpx 已 fake 注入，不触碰网络）。"""
+
+    @pytest.mark.asyncio
+    async def test_request_parses_json(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """可解析 JSON 的响应应返回 (status, 字典)，timeout 应透传。"""
+        created = _install_fake_httpx(monkeypatch)
+        backend = _HttpxBackend(timeout=5.0)
+        created[0].responses.append(
+            _FakeHttpResponse(status_code=200, json_data={"status": "ok"})
+        )
+        status, body = await backend.request("GET", "http://host:9200/health")
+        assert status == 200
+        assert body == {"status": "ok"}
+
+        client = created[0]
+        assert client.kwargs["timeout"] == 5.0
+        assert client.requests[-1]["method"] == "GET"
+        assert client.requests[-1]["url"] == "http://host:9200/health"
+
+    @pytest.mark.asyncio
+    async def test_request_falls_back_to_text_when_not_json(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """响应体非 JSON 时应降级返回文本。"""
+        created = _install_fake_httpx(monkeypatch)
+        backend = _HttpxBackend(timeout=5.0)
+        created[0].responses.append(
+            _FakeHttpResponse(status_code=503, text="Service Unavailable", json_raises=True)
+        )
+        status, body = await backend.request("GET", "http://host:9200/health")
+        assert status == 503
+        assert body == "Service Unavailable"
+
+    @pytest.mark.asyncio
+    async def test_close_releases_client(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """close 应关闭底层 httpx client。"""
+        created = _install_fake_httpx(monkeypatch)
+        backend = _HttpxBackend(timeout=5.0)
+        await backend.close()
+        assert created[0].closed is True
+
+
+class TestDefaultSshRunner:
+    """默认 SSH runner（asyncssh）异常路径测试。"""
+
+    @pytest.mark.asyncio
+    async def test_connect_failure_returns_not_healthy(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """SSH 连接失败时 runner 应返回 (False, 错误详情)，而非抛出异常。"""
+
+        class RaisingAsyncSSH:
+            @staticmethod
+            def connect(host: str) -> Any:
+                raise OSError("connection refused")
+
+        monkeypatch.setitem(sys.modules, "asyncssh", RaisingAsyncSSH())
+        runner = _make_default_ssh_runner()
+        assert runner is not None
+        healthy, detail = await runner("openclaw01")
+        assert healthy is False
+        assert "connection refused" in detail
+
+
+class TestSshProbe:
+    """_probe_ssh 边界测试。"""
+
+    @pytest.mark.asyncio
+    async def test_probe_ssh_without_runner(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """SSH runner 缺失时应返回未配置提示。"""
+        monkeypatch.setitem(sys.modules, "asyncssh", None)
+        checker = ClusterChecker()
+        result = await checker._probe_ssh("openclaw01")
+        assert result == {
+            "host": "openclaw01",
+            "ok": False,
+            "detail": "SSH runner 未配置",
+        }

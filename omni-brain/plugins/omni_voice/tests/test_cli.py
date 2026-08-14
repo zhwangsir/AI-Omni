@@ -41,15 +41,21 @@ class TestParsing:
         assert exc.value.code == 0
         assert "listen-once" in capsys.readouterr().out
 
-    def test_no_command_shows_help_and_fails(self):
+    def test_no_command_returns_json_invalid_params(self, capsys):
         with pytest.raises(SystemExit) as exc:
             cli.main([])
-        assert exc.value.code == 2
+        assert exc.value.code == 1
+        result = _out_json(capsys)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
 
-    def test_unknown_command_fails(self):
+    def test_unknown_command_returns_json_invalid_params(self, capsys):
         with pytest.raises(SystemExit) as exc:
             cli.main(["bogus"])
-        assert exc.value.code == 2
+        assert exc.value.code == 1
+        result = _out_json(capsys)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
 
 
 # ---------------------------------------------------------------------------
@@ -75,10 +81,13 @@ class TestSpeakCommand:
         assert result["data"]["spoken"] == "你好 CLI"
         assert fresh_runtime.components["tts"].texts == ["你好 CLI"]
 
-    def test_speak_missing_text_arg_fails(self):
+    def test_speak_missing_text_arg_returns_json_invalid_params(self, capsys):
         with pytest.raises(SystemExit) as exc:
             cli.main(["speak"])
-        assert exc.value.code == 2
+        assert exc.value.code == 1
+        result = _out_json(capsys)
+        assert result["ok"] is False
+        assert result["error"]["code"] == "E_INVALID_PARAMS"
 
     def test_speak_backend_error_exits_one(self, capsys, monkeypatch):
         def _boom(config):
@@ -160,7 +169,7 @@ class TestConfigCommand:
         assert cli.main(["config", "get"]) == 0
         result = _out_json(capsys)
         assert result["ok"] is True
-        assert result["data"]["wake_word"] == "hey_omni"
+        assert result["data"]["wake_word"] == "雪莉"
 
     def test_config_set_then_get(self, capsys, fresh_runtime):
         assert cli.main(["config", "set", "wake_threshold", "0.8"]) == 0

@@ -74,6 +74,7 @@ function makeFakeMusicStore(): { store: MusicStore } {
         error: null,
         loginQr: null,
         loginStatus: "idle" as const,
+        onlineResults: null,
       }),
       subscribe: () => () => {},
       fetchPlayerState: async () => {},
@@ -87,6 +88,9 @@ function makeFakeMusicStore(): { store: MusicStore } {
       setRepeatMode: async () => {},
       startLogin: async () => {},
       stopLoginPolling: () => {},
+      searchOnline: async () => {},
+      clearOnlineResults: () => {},
+      debugSetPlayerState: () => {},
     },
   };
 }
@@ -109,6 +113,7 @@ function makeFakeLyricsStore(): { store: LyricsStore } {
       searchLyrics: async () => null,
       uploadLyrics: async () => null,
       clear: () => {},
+      debugSetLyrics: () => {},
     },
   };
 }

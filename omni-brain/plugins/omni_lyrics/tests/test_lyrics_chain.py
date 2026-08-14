@@ -14,11 +14,13 @@
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
-from omni_lyrics.lyrics_chain import LyricsChain, LyricsResult
+from omni_lyrics.lyrics_chain import LyricsChain, LyricsResult, MutagenEmbeddedReader
 from omni_music.models import MusicSourceEnum, Song
 from omni_music.sources.base import FakeMusicSource
 
@@ -288,3 +290,177 @@ class TestLyricsChainPriority:
         assert result.lyrics is None
         assert result.source == "none"
         assert result.parsed == []
+
+
+# ---------------------------------------------------------------------------
+# MutagenEmbeddedReader（M32.26 覆盖率提升：fake mutagen 模块注入，零依赖）
+# ---------------------------------------------------------------------------
+def _fake_mutagen(file_func: Any) -> ModuleType:
+    """构造 fake mutagen 模块：``File`` 属性为给定的假函数。"""
+    mod = ModuleType("mutagen")
+    mod.File = file_func
+    return mod
+
+
+def _fake_audio(tags: dict[str, Any] | None) -> SimpleNamespace:
+    """构造带 .tags 的假 audio 对象。"""
+    return SimpleNamespace(tags=tags)
+
+
+class TestMutagenEmbeddedReader:
+    """MutagenEmbeddedReader.read 全分支（lyrics_chain.py 91-120 行）。"""
+
+    def test_non_file_url_returns_none(self) -> None:
+        """url 非 file:// 协议直接返回 None（不触发 mutagen）。"""
+        song = _make_song(lyrics=None)
+        song.url = "https://example.com/x.mp3"
+        assert MutagenEmbeddedReader().read(song) is None
+
+    def test_url_not_str_returns_none(self) -> None:
+        """url 缺失（None）直接返回 None。"""
+        song = _make_song(lyrics=None)
+        song.url = None
+        assert MutagenEmbeddedReader().read(song) is None
+
+    def test_mutagen_import_error_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """mutagen 缺失（sys.modules 中为 None → ImportError）返回 None。"""
+        monkeypatch.setitem(sys.modules, "mutagen", None)
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) is None
+
+    def test_mutagen_file_raises_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """MutagenFile 抛异常（文件损坏/格式不支持）返回 None。"""
+
+        def _boom(path: str) -> Any:
+            raise RuntimeError("无法解析音频")
+
+        monkeypatch.setitem(sys.modules, "mutagen", _fake_mutagen(_boom))
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) is None
+
+    def test_mutagen_file_returns_none_audio(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """MutagenFile 返回 None（不支持的格式）返回 None。"""
+        monkeypatch.setitem(sys.modules, "mutagen", _fake_mutagen(lambda path: None))
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) is None
+
+    def test_tags_none_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """audio.tags 为 None → 视为空标签，返回 None。"""
+        monkeypatch.setitem(
+            sys.modules, "mutagen", _fake_mutagen(lambda path: _fake_audio(None))
+        )
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) is None
+
+    @pytest.mark.parametrize(
+        "key", ["SYNCEDLYRICS", "lyrics", "USLT", "USLT::eng", "©lyr"]
+    )
+    def test_each_tag_key_hit_returns_text(
+        self, key: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """五个候选 tag key 各自命中（list 值取 [0]）。"""
+        monkeypatch.setitem(
+            sys.modules,
+            "mutagen",
+            _fake_mutagen(lambda path: _fake_audio({key: ["[00:01.00]内嵌歌词"]})),
+        )
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) == "[00:01.00]内嵌歌词"
+
+    def test_non_list_value_str_conversion(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """tag 值非 list（如 USLT 对象/字符串）→ str(val) 返回。"""
+        monkeypatch.setitem(
+            sys.modules,
+            "mutagen",
+            _fake_mutagen(lambda path: _fake_audio({"USLT": "纯文本内嵌歌词"})),
+        )
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) == "纯文本内嵌歌词"
+
+    def test_empty_list_value_continues_to_next_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """空 list 值跳过（continue），继续匹配后续 key。"""
+        monkeypatch.setitem(
+            sys.modules,
+            "mutagen",
+            _fake_mutagen(
+                lambda path: _fake_audio(
+                    {"SYNCEDLYRICS": [], "lyrics": ["[00:02.00]次优命中"]}
+                )
+            ),
+        )
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) == "[00:02.00]次优命中"
+
+    def test_blank_text_skipped_to_next_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """text 全空白跳过，继续匹配后续 key。"""
+        monkeypatch.setitem(
+            sys.modules,
+            "mutagen",
+            _fake_mutagen(
+                lambda path: _fake_audio(
+                    {"SYNCEDLYRICS": ["   \n  "], "USLT": ["真实歌词"]}
+                )
+            ),
+        )
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) == "真实歌词"
+
+    def test_no_candidate_key_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """tags 无任何候选 key → 返回 None。"""
+        monkeypatch.setitem(
+            sys.modules,
+            "mutagen",
+            _fake_mutagen(lambda path: _fake_audio({"TIT2": ["标题"]})),
+        )
+        song = _make_song(lyrics=None)
+        assert MutagenEmbeddedReader().read(song) is None
+
+    def test_fetch_with_real_mutagen_reader_integration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """经 LyricsChain.fetch 集成：fake mutagen 注入后来源为 embedded。"""
+        monkeypatch.setitem(
+            sys.modules,
+            "mutagen",
+            _fake_mutagen(
+                lambda path: _fake_audio({"SYNCEDLYRICS": ["[00:03.00]集成歌词"]})
+            ),
+        )
+        song = _make_song(lyrics=None)
+        chain = LyricsChain(sources=[], embedded_reader=MutagenEmbeddedReader())
+        result = chain.fetch(song)
+        assert result.lyrics == "[00:03.00]集成歌词"
+        assert result.source == "embedded"
+        assert result.parsed[0].text == "集成歌词"
+
+
+class TestParseNone:
+    """LyricsChain._parse(None) 边界（lyrics_chain.py 152 行）。"""
+
+    def test_parse_none_returns_empty_list(self) -> None:
+        assert LyricsChain._parse(None) == []
+
+
+class TestTryOnlineSongIdNotStr:
+    """_try_online 的 song.id 非 str 分支（lyrics_chain.py 176 行）。"""
+
+    def test_song_id_not_str_skips_online(self) -> None:
+        """song.id=123（非 str）→ 在线源整体跳过，get_lyrics 不被调用。"""
+        song = _make_song(song_id=123, lyrics=None)  # type: ignore[arg-type]
+
+        class _RecordingSource:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def get_lyrics(self, song_id: str) -> str | None:
+                self.calls.append(song_id)
+                return "[00:01.00]在线"
+
+        source = _RecordingSource()
+        chain = LyricsChain(sources=[source])
+        result = chain.fetch(song)
+        assert result.lyrics is None
+        assert result.source == "none"
+        assert source.calls == []
