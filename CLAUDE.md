@@ -198,4 +198,11 @@ goal_plan(goal: str, category: str) -> dict   # 返回分解后的子目标 / �
 
 - 运行：`python3 -m pytest`（配置见 `pyproject.toml`，`testpaths = ["tests", "omni-brain/plugins"]`）。
 - 覆盖率门槛 **≥ 80%**（`fail_under = 80`）。
-- 测试全部 fake 后端；TDD 测试先行；bug 修复先补复现测试。细则见 [AGENTS.md](AGENTS.md)。
+- 测试全部 fake 后端；TDD 测试先行；bug 修复先补复现测试。
+
+## 八、新功能开发流程（dev-skills 链路）
+
+1. **新功能**必须完整走 dev-skills 链路：`dev-grill-docs`（需求拷问与设计 spec）→（复杂需求加 `dev-plan`）→ `dev-tdd`（测试先行）→ `dev-verify`（实证验证）→ `dev-code-review`（提交前审查）→ `dev-finish`（合并/交付）。
+2. **bug 修复**走 `dev-fix`（内置复现测试 + red→green→red）→ `dev-verify` → `dev-code-review`。
+3. **任何 commit 前**必须过 `dev-code-review` 且 Verdict 为 READY（无 P0/P1）方可提交；审查发现的问题修复后需复审与全量回归。
+4. 里程碑收尾仍按既有约定归档：更新 STATE.json 子任务条目 + TEST_LOG.md 时间序条目。
