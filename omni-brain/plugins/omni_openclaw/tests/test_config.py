@@ -18,7 +18,7 @@ class TestOpenClawConfig:
     def test_default_model_endpoints(self) -> None:
         """默认模型端点应符合 openclaw01 规格。"""
         cfg = OpenClawConfig()
-        assert cfg.llm_l1_endpoint == "http://192.168.71.127:8000/v1"
+        assert cfg.llm_l1_endpoint == "http://192.168.71.109:52415/v1"
         assert cfg.llm_l4_endpoint == "http://192.168.71.82:8000/v1"
         assert cfg.llm_l2_l3_endpoint == "http://192.168.71.109:52415/v1"
         assert cfg.comfyui_endpoint == "http://192.168.71.127:8188"
@@ -28,7 +28,7 @@ class TestOpenClawConfig:
     def test_default_models(self) -> None:
         """默认模型 ID 应符合 openclaw01 规格。"""
         cfg = OpenClawConfig()
-        assert cfg.llm_l1_model == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+        assert cfg.llm_l1_model == "mlx-community/GLM-5.2-fp8"
         assert cfg.llm_l4_model == "euryale-70b"
         assert cfg.embedding_model == "Qwen3-Embedding-4B"
 

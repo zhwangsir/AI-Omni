@@ -84,7 +84,7 @@ def _build_fake_components(config: VoiceConfig) -> dict[str, Any]:
 def _build_real_components(config: VoiceConfig) -> dict[str, Any]:
     """构建真实后端组件（惰性导入）。
 
-    - LLM → Nemotron vLLM (192.168.71.127:8000/v1)
+    - LLM → Mac Studio EXO 集群 GLM-5.2-fp8 (192.168.71.109:52415/v1)
     - ASR → faster-whisper (192.168.71.127:9210/v1)
     - TTS → IndexTTS2 (192.168.71.127:9200)
     - VAD/唤醒 → 本地纯 Python EnergyVAD（零依赖）

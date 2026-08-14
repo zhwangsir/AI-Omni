@@ -181,13 +181,14 @@ class VoiceConfig:
     #: M6.3：True 时管道跳过 TTS 合成与播放（状态机/事件/reply 写入照走）——
     #: OpenTalking 模式下由 OpenTalking 独家发声，omni_voice 本地静音。
     tts_muted: bool = False
-    #: LLM 端点：Workstation 上的 Nemotron vLLM（OpenAI 兼容 /chat/completions）。
-    llm_endpoint: str = "http://192.168.71.127:8000/v1"
+    #: LLM 端点：Mac Studio EXO 集群（studio01，OpenAI 兼容 /chat/completions）。
+    #: 2026-08-05 起 Workstation Nemotron vLLM 已退役，勿回指 :8000。
+    llm_endpoint: str = "http://192.168.71.109:52415/v1"
     #: ASR 端点：Workstation GPU2 上的 faster-whisper（OpenAI 兼容 /audio/transcriptions）。
     asr_endpoint: str = "http://192.168.71.127:9210/v1"
     #: TTS 端点：Workstation 上的 IndexTTS2 服务（POST /tts multipart）。
     tts_endpoint: str = "http://192.168.71.127:9200"
-    llm_model: str = "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+    llm_model: str = "mlx-community/GLM-5.2-fp8"
     system_prompt: str = get_identity().system_prompt
     wake_response: str = get_identity().wake_response
 

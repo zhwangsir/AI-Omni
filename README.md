@@ -136,7 +136,7 @@ PYTHONPATH=omni-brain/plugins python3 -m omni_voice run
 | openclaw01–04 | 4× Mac mini M2 | OpenClaw 网关 `:18789` |
 | NAS | `192.168.71.7` | 模型 / 数据备份 44T |
 
-> **已知偏差**：`omni_voice` 默认 `llm_endpoint` 仍指向已停用的 Workstation `:8000`（Nemotron vLLM 2026-08-05 退役），运行前需通过 `voice_config` 指向在线 LLM 端点。集群完整状态见 [AGENTS.md](AGENTS.md)。
+> **LLM 端点**：`omni_voice` / `omni_openclaw` 默认 LLM 已切换至 Mac Studio EXO 集群（studio01 `:52415/v1`，`mlx-community/GLM-5.2-fp8`，2026-08-14 实测在线）；Workstation Nemotron vLLM `:8000` 已于 2026-08-05 退役。集群完整状态见 [AGENTS.md](AGENTS.md)。
 
 ---
 

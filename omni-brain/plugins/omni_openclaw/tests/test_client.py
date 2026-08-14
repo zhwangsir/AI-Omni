@@ -306,13 +306,13 @@ class TestMultimodalChat:
         )
         assert result["ok"] is True
         assert result["content"] == "图中有一只猫。"
-        assert result["model"] == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+        assert result["model"] == "mlx-community/GLM-5.2-fp8"
 
         call = llm_backend.calls[-1]
         assert call["method"] == "POST"
         assert call["path"] == "/chat/completions"
         payload = call["kwargs"]["json"]
-        assert payload["model"] == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+        assert payload["model"] == "mlx-community/GLM-5.2-fp8"
         assert payload["messages"][0]["role"] == "user"
         content = payload["messages"][0]["content"]
         assert content[0]["type"] == "text"

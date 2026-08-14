@@ -105,7 +105,7 @@ def checker(backend: FakeHttpBackend) -> ClusterChecker:
 
 _ENDPOINTS = {
     "gateway": "http://192.168.71.86:18789/health",
-    "llm_l1": "http://192.168.71.127:8000/v1/models",
+    "llm_l1": "http://192.168.71.109:52415/v1/models",
     "llm_l4": "http://192.168.71.82:8000/v1/models",
     "comfyui": "http://192.168.71.127:8188/system_stats",
     "tts": "http://192.168.71.127:9200/health",

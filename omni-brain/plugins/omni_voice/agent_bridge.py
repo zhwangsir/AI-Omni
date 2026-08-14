@@ -4,7 +4,7 @@
 - :class:`ToolCallRequest` ：单次工具调用请求（id / name / arguments）
 - :class:`AgentBridge`    ：抽象接口 ``chat(text) -> str`` + ``chat_with_tools`` 可选能力
 - :class:`LiteLLMBridge`  ：OpenAI 兼容端点（仅用 urllib 标准库，无第三方依赖），
-  默认指向 Workstation Nemotron vLLM（:8000/v1），AI-Omni 不自行加载本地模型（AGENTS.md §四）
+  默认指向 Mac Studio EXO 集群（studio01 :52415/v1，GLM-5.2-fp8），AI-Omni 不自行加载本地模型
 - :class:`FakeAgentBridge`：可编程 fake（测试/演示用），支持 tool_calls 模拟
 
 M8 扩展：LiteLLMBridge 新增 ``chat_messages(messages)`` 支持发送完整消息列表。

@@ -34,10 +34,10 @@ class TestDefaults:
         assert cfg.tts_backend == "indextts2"
         assert cfg.tts_voice == "zh"
         assert cfg.tts_speed == pytest.approx(1.0)
-        assert cfg.llm_endpoint == "http://192.168.71.127:8000/v1"
+        assert cfg.llm_endpoint == "http://192.168.71.109:52415/v1"
         assert cfg.asr_endpoint == "http://192.168.71.127:9210/v1"
         assert cfg.tts_endpoint == "http://192.168.71.127:9200"
-        assert cfg.llm_model == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+        assert cfg.llm_model == "mlx-community/GLM-5.2-fp8"
         assert cfg.system_prompt
         assert cfg.wake_response == "我在"
 
@@ -68,7 +68,7 @@ class TestDefaults:
     def test_summary_contains_all_fields(self):
         summary = VoiceConfig().summary()
         assert summary["sample_rate"] == 16000
-        assert summary["llm_model"] == "Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+        assert summary["llm_model"] == "mlx-community/GLM-5.2-fp8"
         assert "system_prompt" in summary
         assert "wake_response" in summary
 
