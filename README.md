@@ -4,6 +4,17 @@
 
 **当前状态：M0–M46 全部完成** · 3080 项 pytest 自动化测试 · 桌面端 / 移动端 / 演示视频三线落地
 
+
+> 文档时点：**2026-08-27**。集群设备 / GPU / 端口 / 挂载以 [`../ToIV/AGENTS.md`](../ToIV/AGENTS.md) 为准。本文不复制凭据或过时设备表。
+
+**仓库**：origin = https://gitee.com/Winery_z/AI-Omni.git ；github 备份 = https://github.com/zhwangsir/AI-Omni.git 。当前分支 `main`（`e9f9186`）。2026-08-27 本机实测 origin/github 提交差 **0 / 0**。
+
+登记册：M0–M46 完成，3080 pytest。`STATE.json`：`current_milestone=M46`，各 milestone status=completed（列表无 M37）；`phases[5]`「办公自动化增强」字段仍为 in_progress。TEST_LOG 记全量回归 **3080 passed**。
+
+`STATE.json` 的 `model_backends` 为历史配置快照（含已退役端点），**现网以 ToIV/AGENTS.md + 真机为准**。
+
+根目录文档五件套：README / AGENTS / DEVELOPMENT / STATE.json / TEST_LOG。`docs/`、CLAUDE.md、设备说明.md 已归档。
+
 AI-Omni 是一个**完全运行在本地基础设施上**的个人 AI 全能助手：决策大脑复用 WeBrain (Hermes)，所有能力以 `omni_*` 插件形式按需接入。语音、音乐、家居、办公、微信、天气等能力已全部落地，用户数据不出内网。
 
 - **隐私优先**：核心数据（记忆、对话、文件）全部本地运行与存储，无外发。
@@ -46,6 +57,24 @@ flowchart TB
 
 ---
 
+
+## 里程碑（STATE.json，全部 completed）
+
+Phase 1 语音交互 MVP · Phase 2 智能家居 · Phase 3 桌面 HUD + 数字人 · Phase 4 多模态感知 · Phase 5 办公自动化增强（phase 字段仍 in_progress，milestone M34–M46 已 completed）。
+
+| 段 | 内容 |
+|----|------|
+| M0–M2 | 初始化 + omni_voice MVP + 真机语音链路 |
+| M3–M11 | omni_home、omni-hud、粒子空间、数字人/显影场、维纳斯连续对话、工具调用、唤醒/TTS |
+| M12–M16 | 灵动岛、Agent 可视化、omni_sdk 正式化、系统辅助 7 插件 |
+| M17–M26 | 音乐/歌词/歌库、3D 歌单架、壁纸模式、天气电台、雪莉身份、统一 OpenClaw 网关 |
+| M27–M33 | omni_openclaw 网关能力、nut-js 桌面自动化 |
+| M34–M36 | 办公工作流、UniHub 办公模块、omni_office HTTP 桥 |
+| M38 | omni_wechat（腾讯 iLink Bot API） |
+| M39–M46 | demo-video Remotion 演示片至程序化 Canvas 粒子引擎 |
+
+STATE 列表无 M37。约束：与 WeBrain 模块隔离（只新增 omni_* 插件、不改 WeBrain 核心）；Lucide React 唯一图标源；覆盖率门槛 0.8。
+
 ## 三大交付线
 
 | 交付线 | 目录 | 技术栈 | 里程碑 | 说明 |
@@ -70,7 +99,7 @@ flowchart TB
 | `omni_office` | 办公：文档 / 邮件 / 日程 + HTTP 服务 |
 | `omni_wechat` | 微信：腾讯 iLink Bot API 收发全链路（唯一低风险方案） |
 | `omni_weather` | 天气：Open-Meteo、情绪歌单联动 |
-| `omni_openclaw` | 集群网关：设备状态、AICG、多模态（读根目录 `设备说明.md`） |
+| `omni_openclaw` | 集群网关：设备状态、AICG、多模态（集群真相见 ToIV/AGENTS.md） |
 | `omni_volume` / `omni_brightness` / `omni_power` / `omni_process` / `omni_performance` / `omni_screenshot` / `omni_fullscreen_detect` | macOS 系统辅助插件矩阵 |
 
 ---
@@ -81,20 +110,13 @@ flowchart TB
 AI-Omni/
 ├── omni-brain/plugins/    # Python 后端：16 个 omni_* 插件（唯一新增代码形态）
 ├── omni-hud/              # 桌面端：Tauri/Rust 壳 + React 前端 + Three.js 粒子空间
-│   ├── src/               # React 前端
-│   ├── src-tauri/         # Rust 壳（voice/music/lyrics/office/weather IPC）
-│   └── e2e/               # Playwright E2E（页面对象模型 + fake Tauri IPC）
-├── UniHub/                # 移动端：uni-app / Vue 3 跨端应用
-├── demo-video/            # Remotion 演示视频（particles/ 程序化粒子引擎）
-├── docs/specs/            # 现行规范引用的设计文档（m5 / m12–m26）
-├── tests/                 # pytest 主测试目录（全 fake 后端，无硬件依赖）
-├── STATE.json             # 项目状态中枢（里程碑 / 约束 / 上游资产）
-├── TEST_LOG.md            # 测试日志（按里程碑时间序，含代码片段与结果）
-├── 设备说明.md            # 集群设备清单（omni_openclaw 插件读取）
-├── AGENTS.md              # 集群操作记忆与决策记录（每次会话必读）
-├── CLAUDE.md              # 代码规范（Python / 插件 / UI / 测试）
-└── pyproject.toml         # pytest 与覆盖率配置（fail_under = 80）
+├── UniHub/                # 移动端：uni-app / Vue 3（自有五件套，可有独立 git）
+├── demo-video/            # Remotion 演示视频
+├── tests/                 # pytest（全 fake 后端，无硬件依赖）
+├── AGENTS.md / DEVELOPMENT.md / STATE.json / TEST_LOG.md
+└── pyproject.toml         # pytest；coverage fail_under = 80
 ```
+
 
 ---
 
@@ -126,25 +148,15 @@ PYTHONPATH=omni-brain/plugins python3 -m omni_voice run
 
 ---
 
-## 基础设施（2026-08-11 SSH 实测）
+## 基础设施与集群
 
-| 节点 | 硬件 | 服务 |
-|------|------|------|
-| workstation `192.168.71.127` | 4× RTX PRO 6000 | IndexTTS2 `:9200` ✅ · faster-whisper ASR `:9210` ✅ · Qwen3-Embedding-4B `:9302` ✅ · ComfyUI `:8189` · FlashTalk / OpenTalking 数字人 |
-| studio01–04 | 4× Mac Studio M3 Ultra 512GB | EXO RDMA 集群：GLM-5.2-fp8 |
-| pc01 / pc02 | 2× RTX 5090 | ComfyUI worker `:8188` / `:8193`（NAS 模型库） |
-| openclaw01–04 | 4× Mac mini M2 | OpenClaw 网关 `:18789` |
-| NAS | `192.168.71.7` | 模型 / 数据备份 44T |
-
-> **LLM 端点**：`omni_voice` / `omni_openclaw` 默认 LLM 已切换至 Mac Studio EXO 集群（studio01 `:52415/v1`，`mlx-community/GLM-5.2-fp8`，2026-08-14 实测在线）；Workstation Nemotron vLLM `:8000` 已于 2026-08-05 退役。集群完整状态见 [AGENTS.md](AGENTS.md)。
-
----
+ASR / TTS / Embedding 等算力后端在 Workstation，不在本机加载推理模型。现网服务、GPU、端口只认 [../ToIV/AGENTS.md](../ToIV/AGENTS.md) 与 SSH 真机，禁止沿用本 README 旧表（Studio EXO / Nemotron :8000 等记录已过时）。
 
 ## 文档导航
 
-- [STATE.json](STATE.json) / [TEST_LOG.md](TEST_LOG.md) — 项目状态中枢与测试日志（M0–M46 全程）
-- [AGENTS.md](AGENTS.md) — 集群设备清单、GPU 分配、凭据、易错点（每次会话必读）
-- [CLAUDE.md](CLAUDE.md) — 代码规范：插件契约、OmniPlugin 基类、惰性导入、UI 约束、测试要求
-- [docs/specs/transformation-plan-m12-m26.md](docs/specs/transformation-plan-m12-m26.md) — M12–M26 转型规划（OmniPlugin 基类设计依据）
-- [docs/specs/m5-immersive-space.md](docs/specs/m5-immersive-space.md) — 沉浸式空间粒子分档约束（high ≤4000 / medium ≤2000 / low ≤800）
-- [设备说明.md](设备说明.md) — 集群设备说明（`omni_openclaw` 插件运行时读取）
+- [STATE.json](STATE.json) / [TEST_LOG.md](TEST_LOG.md) — 里程碑与测试日志（M0–M46）
+- [AGENTS.md](AGENTS.md) — 本项目规则
+- [DEVELOPMENT.md](DEVELOPMENT.md) — 归档文档索引
+- [UniHub/README.md](UniHub/README.md) — 嵌套移动端
+- [../ToIV/AGENTS.md](../ToIV/AGENTS.md) — 集群唯一真相源
+- [../项目登记册.md](../项目登记册.md) — 项目组登记
